@@ -7,7 +7,8 @@ import (
 	"os"
 	"time"
 
-	"golang.org/x/net/context"
+	"context"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -159,12 +160,17 @@ func main() {
 
 	flag.Parse()
 
-	if migrate {
-		handleMigrate(ctx, db)
-	}
+	switch {
 
-	if flush {
-		flushDB(db)
+	case migrate:
+		{
+			handleMigrate(ctx, db)
+		}
+
+	case flush:
+		{
+			flushDB(db)
+		}
 	}
 
 	if len(os.Args) < 3 {
@@ -182,6 +188,11 @@ func main() {
 		{
 			remove.Parse(os.Args[2:])
 			handleRemove(db, company, domain, ctx)
+		}
+
+	case "hunt":
+		{
+
 		}
 	}
 }
