@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"sync"
 	"time"
@@ -55,11 +55,9 @@ func extractParams(pattern string, html string, ch chan []string) {
 		log.Fatal(err)
 	}
 
-	matchedParams := r.FindAllStringSubmatch(html, -1)
-
 	var params []string
-	for _, param := range matchedParams {
-		params = append(params, param[1])
+	for _, match := range r.FindAllStringSubmatch(html, -1) {
+		params = append(params, match[1])
 	}
 
 	ch <- params
@@ -68,18 +66,18 @@ func extractParams(pattern string, html string, ch chan []string) {
 func findHtmlNameParams(html string, ch chan []string) {
 	const pattern = `(?:<input.*?name)(?:="|')(.*?)(?:'|")`
 
-	extractParams(pattern, html, ch)
-	wg.Done()
+	go func() {
+		extractParams(pattern, html, ch)
+	}()
 }
 
 func findHtmlIdParams(html string, ch chan []string) {
 	const pattern = `(?:<input.*?id)(?:="|')(.*?)(?:'|")`
+	go func() {
+		extractParams(pattern, html, ch)
+	}()
 
-	extractParams(pattern, html, ch)
-	wg.Done()
 }
-
-var wg sync.WaitGroup
 
 func main() {
 	// htmlContent := headlessRequest("http://localhost:3000/login")
@@ -92,18 +90,28 @@ func main() {
 	<input type="submit" value="Submit">
   </form>`
 
-	ch := make(chan []string, 2)
+	params := make(chan []string, 2)
 
-	wg.Add(2)
-	go findHtmlNameParams(ss, ch)
-	go findHtmlIdParams(ss, ch)
+	findHtmlNameParams(ss, params)
+	findHtmlIdParams(ss, params)
+
+	var wg sync.WaitGroup
+	var results []string
+
+	for i := 0; i != 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results = append(results, <-params...)
+		}()
+	}
 	wg.Wait()
+	file, err := os.OpenFile("test.txt", os.O_CREATE, 0664)
 
-	counter := 0
-	for counter != 2 {
-		for _, val := range <- ch {
-			fmt.Println(val)
-		}
-		counter++
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, param := range results {
+		file.WriteString(param+"\n")
 	}
 }
