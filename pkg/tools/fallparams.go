@@ -2,8 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
-	"os"
+	"fmt"
 	"regexp"
 	"sync"
 	"time"
@@ -12,7 +11,7 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-func headlessRequest(url string) string {
+func headlessRequest(url string) (string, error) {
 	ctx, cancel := chromedp.NewContext(
 		context.Background(),
 	)
@@ -42,17 +41,18 @@ func headlessRequest(url string) string {
 		chromedp.OuterHTML("html", &htmlContent),
 	)
 	if err != nil {
-		log.Fatal(err)
+		return "", fmt.Errorf("[!] Error while running headless browser: %w", err)
 	}
 
-	return htmlContent
+	return htmlContent, nil
 }
 
-func extractParams(pattern string, html string, ch chan []string) {
+func extractParams(pattern string, html string, paramCh chan []string, errCh chan error) {
 	r, err := regexp.Compile(pattern)
 
 	if err != nil {
-		log.Fatal(err)
+		errCh <- fmt.Errorf("[!] Error while compiling regex, regex: %s, error: %w", pattern, err)
+		return
 	}
 
 	var params []string
@@ -60,22 +60,77 @@ func extractParams(pattern string, html string, ch chan []string) {
 		params = append(params, match[1])
 	}
 
-	ch <- params
+	paramCh <- params
 }
 
-func findHtmlNameParams(html string, ch chan []string) {
-	const pattern = `(?:<input.*?name)(?:="|')(.*?)(?:'|")`
+func mergeParams(params chan []string, res chan []string) {
+	var wg sync.WaitGroup
+	var allparams []string
 
-	go func() {
-		extractParams(pattern, html, ch)
-	}()
+	for len(params) != 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			allparams = append(allparams, <-params...)
+		}()
+	}
+	wg.Wait()
+	res <- allparams
 }
 
-func findHtmlIdParams(html string, ch chan []string) {
-	const pattern = `(?:<input.*?id)(?:="|')(.*?)(?:'|")`
+func logErrors(errors <-chan error) {
+	for len(errors) != 0 {
+		fmt.Println(<-errors)
+	}
+}
+
+func findAllParams(html string) (<-chan []string, <-chan error) {
+	patterns := []string{`(?:<input.*?name)(?:="|')(.*?)(?:'|")`, // html name keys
+		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`, // html id keys
+		`(?:(?:let|const|var)\s*)(\w+)`,       // JS variable names
+		`(?:[{,]\s*(?:"|')?)(\w+)`,            // JS object keys
+	}
+
+	params := make(chan []string, len(patterns))
+	errors := make(chan error, len(patterns))
+
+	var wg sync.WaitGroup
+
+	for _, pattern := range patterns {
+		pattern := pattern
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			extractParams(pattern, html, params, errors)
+		}()
+	}
+	wg.Wait()
+
+	close(params)
+	close(errors)
+
+	return params, errors
+
+}
+
+func merge(params <-chan []string, errors <-chan error) {
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	chRes := make(chan string)
 	go func() {
-		extractParams(pattern, html, ch)
+		defer wg.Done()
+		for slc := range params {
+			for _, val := range slc {
+				chRes <- val
+			}
+		}
 	}()
+	go func() {
+		defer wg.Done()
+		logErrors(errors)
+	}()
+	wg.Wait()
 
 }
 
@@ -88,30 +143,18 @@ func main() {
 	<label for="lname">Last name:</label>
 	<input type="text" id="testid2" name="lname"><br><br>
 	<input type="submit" value="Submit">
-  </form>`
+  </form>
+ 
+  var obj = {
+	"testkey1": "testval1",
+	'testkey2': 'testval2',
+	testkey3: testval3
+  }
 
-	params := make(chan []string, 2)
+  let testlet = "somevalue"
+  const testconst='someconst'
+  var      testvar      =        "somevar"
+  `
 
-	findHtmlNameParams(ss, params)
-	findHtmlIdParams(ss, params)
-
-	var wg sync.WaitGroup
-	var results []string
-
-	for i := 0; i != 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results = append(results, <-params...)
-		}()
-	}
-	wg.Wait()
-	file, err := os.OpenFile("test.txt", os.O_CREATE, 0664)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, param := range results {
-		file.WriteString(param+"\n")
-	}
+	merge(findAllParams(ss))
 }
