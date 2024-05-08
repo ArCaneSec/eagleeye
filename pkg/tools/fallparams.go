@@ -1,8 +1,11 @@
-package main
+package tools
 
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
@@ -63,27 +66,6 @@ func extractParams(pattern string, html string, paramCh chan []string, errCh cha
 	paramCh <- params
 }
 
-func mergeParams(params chan []string, res chan []string) {
-	var wg sync.WaitGroup
-	var allparams []string
-
-	for len(params) != 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			allparams = append(allparams, <-params...)
-		}()
-	}
-	wg.Wait()
-	res <- allparams
-}
-
-func logErrors(errors <-chan error) {
-	for len(errors) != 0 {
-		fmt.Println(<-errors)
-	}
-}
-
 func findAllParams(html string) (<-chan []string, <-chan error) {
 	patterns := []string{`(?:<input.*?name)(?:="|')(.*?)(?:'|")`, // html name keys
 		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`, // html id keys
@@ -97,7 +79,6 @@ func findAllParams(html string) (<-chan []string, <-chan error) {
 	var wg sync.WaitGroup
 
 	for _, pattern := range patterns {
-		pattern := pattern
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -113,48 +94,116 @@ func findAllParams(html string) (<-chan []string, <-chan error) {
 
 }
 
-func merge(params <-chan []string, errors <-chan error) {
-
+func mergeParams(paramSlices [][]string, params chan string) {
 	var wg sync.WaitGroup
-	wg.Add(2)
-	chRes := make(chan string)
-	go func() {
-		defer wg.Done()
-		for slc := range params {
-			for _, val := range slc {
-				chRes <- val
+
+	for _, slice := range paramSlices {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, val := range slice {
+				params <- val
 			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		logErrors(errors)
-	}()
+		}()
+	}
 	wg.Wait()
+	close(params)
+}
+
+func merge(params <-chan []string) <-chan string {
+
+	var totalLen int
+	var paramSlices [][]string
+
+	// with knowing exact number of params, we can create a buffered channel.
+	for slice := range params {
+		totalLen += len(slice)
+		paramSlices = append(paramSlices, slice)
+	}
+
+	allParams := make(chan string, totalLen)
+
+	go func() {
+		mergeParams(paramSlices, allParams)
+	}()
+
+	return allParams
 
 }
 
-func main() {
-	// htmlContent := headlessRequest("http://localhost:3000/login")
+func uniqueParams(params []string) ([]string, map[string]int) {
+	seen := make(map[string]int, len(params))
+	var uniqueParams []string
 
-	ss := `<form action="/action_page.php">
-	<label for="fname">First name:</label>
-	<input type="text" id="testid1" name="fname"><br><br>
-	<label for="lname">Last name:</label>
-	<input type="text" id="testid2" name="lname"><br><br>
-	<input type="submit" value="Submit">
-  </form>
- 
-  var obj = {
-	"testkey1": "testval1",
-	'testkey2': 'testval2',
-	testkey3: testval3
-  }
+	for _, val := range params {
+		if _, ok := seen[val]; !ok {
+			seen[val] = 1
+			uniqueParams = append(uniqueParams, val)
+		} else {
+			seen[val] += 1
+		}
+	}
 
-  let testlet = "somevalue"
-  const testconst='someconst'
-  var      testvar      =        "somevar"
-  `
+	return uniqueParams, seen
+}
 
-	merge(findAllParams(ss))
+func logError(errors <-chan error) (<-chan struct{}, error) {
+	ex, _ := os.Executable()
+	dir, _ := filepath.Split(filepath.Dir(ex))
+	finalPath := filepath.Join(dir, "logs", "fallparams-logs.txt")
+
+	file, err := os.OpenFile(finalPath, os.O_CREATE, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("[!] An error occurred while trying to open or create log file, error: %w", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		for err := range errors {
+			file.WriteString(err.Error() + "\n")
+		}
+		close(done)
+	}()
+	return done, nil
+}
+
+func FAllParams(url string) []string {
+	htmlContent, _ := headlessRequest(url)
+
+	// 	test := `<form action="/action_page.php">
+	// 	<label for="fname">First name:</label>
+	// 	<input type="text" id="testid1" name="fname"><br><br>
+	// 	<label for="lname">Last name:</label>
+	// 	<input type="text" id="testid2" name="lname"><br><br>
+	// 	<input type="submit" value="Submit">
+	//   </form>
+
+	//   var obj = {
+	// 	"testkey1": "testval1",
+	// 	'testkey2': 'testval2',
+	// 	testkey3: testval3
+	//   }
+
+	//   let testlet = "somevalue"
+	//   const testconst='someconst'
+	//   var      testvar      =        "somevar"
+	//   `
+
+	params, errors := findAllParams(htmlContent)
+
+	loggingDone, err := logError(errors)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mergedParams := merge(params)
+	var rs []string
+
+	for val := range mergedParams {
+		rs = append(rs, val)
+	}
+	uniques, _ := uniqueParams(rs)
+	<-loggingDone
+	fmt.Println("[*] Finished.")
+	return uniques
 }
