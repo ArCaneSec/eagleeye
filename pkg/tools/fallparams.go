@@ -68,9 +68,9 @@ func extractParams(pattern string, html string, paramCh chan []string, errCh cha
 
 func findAllParams(html string) (<-chan []string, <-chan error) {
 	patterns := []string{`(?:<input.*?name)(?:="|')(.*?)(?:'|")`, // html name keys
-		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`, // html id keys
-		`(?:(?:let|const|var)\s*)(\w+)`,       // JS variable names
-		`(?:[{,]\s*(?:['"])?)(.+?)(?:\s*)(?=['"]?:)`,            // JS object keys
+		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`,        // html id keys
+		`(?:(?:let|const|var)\s*)(\w+)`,              // JS variable names
+		`(?:[{,]\s*(?:['"])?)(.+?)(?:\s*)(?:['"]?:)`, // JS object keys
 	}
 
 	params := make(chan []string, len(patterns))
@@ -152,7 +152,7 @@ func logError(errors <-chan error) (<-chan struct{}, error) {
 	dir, _ := filepath.Split(filepath.Dir(ex))
 	finalPath := filepath.Join(dir, "logs", "fallparams-logs.txt")
 
-	file, err := os.OpenFile(finalPath, os.O_CREATE, 0644)
+	file, err := os.OpenFile(finalPath, os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("[!] An error occurred while trying to open or create log file, error: %w", err)
 	}
@@ -169,7 +169,7 @@ func logError(errors <-chan error) (<-chan struct{}, error) {
 
 func FAllParams(url string) []string {
 	htmlContent, _ := headlessRequest(url)
-	
+
 	params, errors := findAllParams(htmlContent)
 
 	loggingDone, err := logError(errors)
