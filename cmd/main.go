@@ -2,12 +2,15 @@ package main
 
 import (
 	m "EagleEye/internal/models"
+	"EagleEye/pkg/tools"
 	"flag"
 	"fmt"
 	"os"
 	"time"
 
 	"context"
+
+	"log"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -131,19 +134,31 @@ func flushDB(db *gorm.DB) {
 	exit("[*] Database has been flushed successfully.", 0)
 }
 
+func handleHunt(ctx context.Context, url string) {
+	_, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	params := tools.FAllParams(url)
+	fmt.Println("[*] There parameters have been found:\n", params)
+}
+
 func main() {
 	ctx := context.Background()
 	db, err := openDB(ctx)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	var (
 		migrate bool
 		flush   bool
+		alone   bool
+
 		watch   string
 		company string
 		domain  string
+
+		huntTarget string
 	)
 
 	flag.BoolVar(&migrate, "migrate", false, "migrate schema to database.")
@@ -157,6 +172,10 @@ func main() {
 	remove := flag.NewFlagSet("remove", flag.ExitOnError)
 	remove.StringVar(&company, "company", "", "remove company database.")
 	remove.StringVar(&domain, "domain", "", "remove domain from company's assets.")
+
+	hunt := flag.NewFlagSet("hunt", flag.ExitOnError)
+	hunt.StringVar(&huntTarget, "target", "", "target domain to hunt.")
+	hunt.BoolVar(&alone, "alone", false, "hunting for a single target which doesn't exists on DB.")
 
 	flag.Parse()
 
@@ -192,7 +211,8 @@ func main() {
 
 	case "hunt":
 		{
-
+			hunt.Parse(os.Args[2:])
+			handleHunt(ctx, huntTarget)
 		}
 	}
 }
