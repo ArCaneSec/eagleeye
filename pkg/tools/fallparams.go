@@ -70,7 +70,7 @@ func findAllParams(html string) (<-chan []string, <-chan error) {
 	patterns := []string{`(?:<input.*?name)(?:="|')(.*?)(?:'|")`, // html name keys
 		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`, // html id keys
 		`(?:(?:let|const|var)\s*)(\w+)`,       // JS variable names
-		`(?:[{,]\s*(?:"|')?)(\w+)`,            // JS object keys
+		`(?:[{,]\s*(?:['"])?)(.+?)(?:\s*)(?=['"]?:)`,            // JS object keys
 	}
 
 	params := make(chan []string, len(patterns))
@@ -169,26 +169,7 @@ func logError(errors <-chan error) (<-chan struct{}, error) {
 
 func FAllParams(url string) []string {
 	htmlContent, _ := headlessRequest(url)
-
-	// 	test := `<form action="/action_page.php">
-	// 	<label for="fname">First name:</label>
-	// 	<input type="text" id="testid1" name="fname"><br><br>
-	// 	<label for="lname">Last name:</label>
-	// 	<input type="text" id="testid2" name="lname"><br><br>
-	// 	<input type="submit" value="Submit">
-	//   </form>
-
-	//   var obj = {
-	// 	"testkey1": "testval1",
-	// 	'testkey2': 'testval2',
-	// 	testkey3: testval3
-	//   }
-
-	//   let testlet = "somevalue"
-	//   const testconst='someconst'
-	//   var      testvar      =        "somevar"
-	//   `
-
+	
 	params, errors := findAllParams(htmlContent)
 
 	loggingDone, err := logError(errors)
