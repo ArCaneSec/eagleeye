@@ -3,10 +3,13 @@ package tools
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,13 +18,19 @@ import (
 )
 
 func headlessRequest(url string) (string, error) {
-	ctx, cancel := chromedp.NewContext(
-		context.Background(),
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("ignore-certificate-errors", true),
+		chromedp.Flag("disable-web-security", true),
 	)
-
+	aCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := chromedp.NewContext(
+		aCtx,
+	)
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
 	defaultHeaders := map[string]interface{}{
@@ -44,7 +53,7 @@ func headlessRequest(url string) (string, error) {
 		chromedp.OuterHTML("html", &htmlContent),
 	)
 	if err != nil {
-		return "", fmt.Errorf("[!] Error while running headless browser: %w", err)
+		return "", fmt.Errorf("[!] Error while running headless browser, check your url and network then try again.\nurl: %s\nerror: %w", url, err)
 	}
 
 	return htmlContent, nil
@@ -167,15 +176,99 @@ func logError(errors <-chan error) (<-chan struct{}, error) {
 	return done, nil
 }
 
-func FAllParams(url string) []string {
-	htmlContent, _ := headlessRequest(url)
-
-	params, errors := findAllParams(htmlContent)
-
-	loggingDone, err := logError(errors)
+func extractJsPath(html string) []string {
+	r, err := regexp.Compile("(?:[\"'`])(.+\\.js(on)?)(?:[\"'`])")
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	matches := r.FindAllStringSubmatch(html, -1)
+
+	allPaths := make([]string, 0, len(matches))
+
+	for _, path := range matches {
+		if strings.HasPrefix(path[1], "http") || strings.HasPrefix(path[1], "//") {
+			continue
+		}
+
+		allPaths = append(allPaths, path[1])
+	}
+
+	return allPaths
+}
+
+func sendRawRequest(c context.Context, urls []string) <-chan string {
+	client := http.Client{Timeout: 3 * time.Second}
+	respones := make(chan string, len(urls))
+
+	for _, url := range urls {
+		go func() {
+			fmt.Printf("[*] Sending request to %s\n", url)
+			// ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			// defer cancel()
+
+			req, _ := http.NewRequest("GET", url, nil)
+
+			req.Header = http.Header{
+				"User-Agent":      {"Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"},
+				"Accept":          {"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"},
+				"Accept-Language": {"en-US,en;q=0.5"},
+				"Sec-Fetch-Dest":  {"document"},
+				"Sec-Fetch-Mode":  {"navigate"},
+				"Sec-Fetch-Site":  {"none"},
+				"Sec-Fetch-User":  {"?1"},
+				"Referer":         {url},
+			}
+
+			res, err := client.Do(req)
+			defer res.Body.Close()
+
+			if err != nil {
+				fmt.Printf("[!] Request to %s url failed with error: %s", url, err.Error())
+			}
+
+			resBody, err := io.ReadAll(res.Body)
+			if err != nil {
+				fmt.Printf("[!] Failed to read response for %s url, error: %s", url, err.Error())
+			}
+
+			respones <- string(resBody)
+		}()
+	}
+
+	return respones
+}
+
+func FAllParams(url string, crawl bool) []string {
+	htmlContent, err := headlessRequest(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if crawl {
+		urls := extractJsPath(htmlContent)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		respones := sendRawRequest(ctx, urls)
+
+		var packedBodies []string
+		packedBodies = append(packedBodies, htmlContent)
+
+		for body := range respones {
+			packedBodies = append(packedBodies, body)
+		}
+
+		htmlContent = strings.Join(packedBodies, ",")
+	}
+
+	params, _ := findAllParams(htmlContent)
+
+	// loggingDone, err := logError(errors)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	mergedParams := merge(params)
 	var rs []string
@@ -184,7 +277,7 @@ func FAllParams(url string) []string {
 		rs = append(rs, val)
 	}
 	uniques, _ := uniqueParams(rs)
-	<-loggingDone
+	// <-loggingDone
 	fmt.Println("[*] Finished.")
 	return uniques
 }

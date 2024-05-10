@@ -134,11 +134,11 @@ func flushDB(db *gorm.DB) {
 	exit("[*] Database has been flushed successfully.", 0)
 }
 
-func handleHunt(ctx context.Context, url string) {
+func handleHunt(ctx context.Context, url string, crawl bool) {
 	_, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	params := tools.FAllParams(url)
+	params := tools.FAllParams(url, crawl)
 	fmt.Println("[*] There parameters have been found:\n", params)
 }
 
@@ -152,13 +152,14 @@ func main() {
 	var (
 		migrate bool
 		flush   bool
-		alone   bool
 
 		watch   string
 		company string
 		domain  string
 
 		huntTarget string
+		alone      bool
+		crawl      bool
 	)
 
 	flag.BoolVar(&migrate, "migrate", false, "migrate schema to database.")
@@ -176,6 +177,7 @@ func main() {
 	hunt := flag.NewFlagSet("hunt", flag.ExitOnError)
 	hunt.StringVar(&huntTarget, "target", "", "target domain to hunt.")
 	hunt.BoolVar(&alone, "alone", false, "hunting for a single target which doesn't exists on DB.")
+	hunt.BoolVar(&crawl, "crawl", true, "discover parameters in all js files as well, default=true.")
 
 	flag.Parse()
 
@@ -212,7 +214,7 @@ func main() {
 	case "hunt":
 		{
 			hunt.Parse(os.Args[2:])
-			handleHunt(ctx, huntTarget)
+			handleHunt(ctx, huntTarget, crawl)
 		}
 	}
 }
