@@ -139,7 +139,10 @@ func handleHunt(ctx context.Context, url string, crawl bool) {
 	defer cancel()
 
 	params := tools.FAllParams(url, crawl)
-	fmt.Println("[*] There parameters have been found:\n", params)
+	fmt.Println("[*] These parameters have been found:")
+	for _, param := range params{
+		fmt.Println(param)
+	}
 }
 
 func main() {

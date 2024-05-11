@@ -30,7 +30,7 @@ func headlessRequest(url string) (string, error) {
 	)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	defaultHeaders := map[string]interface{}{
@@ -41,7 +41,7 @@ func headlessRequest(url string) (string, error) {
 		"Sec-Fetch-Mode":  "navigate",
 		"Sec-Fetch-Site":  "none",
 		"Sec-Fetch-User":  "?1",
-		"Referer":         "test.com",
+		"Referer":         url,
 	}
 
 	var htmlContent string
@@ -197,17 +197,18 @@ func extractJsPath(html string) []string {
 	return allPaths
 }
 
-func sendRawRequest(c context.Context, urls []string) <-chan string {
+func sendRawRequest(host string, urls []string) (<-chan string, <-chan error) {
 	client := http.Client{Timeout: 3 * time.Second}
-	respones := make(chan string, len(urls))
+	responses := make(chan string, len(urls))
+	errors := make(chan error, len(urls))
 
+	var wg sync.WaitGroup
 	for _, url := range urls {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			fmt.Printf("[*] Sending request to %s\n", url)
-			// ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			// defer cancel()
-
-			req, _ := http.NewRequest("GET", url, nil)
+			req, _ := http.NewRequest("GET", host+url, nil)
 
 			req.Header = http.Header{
 				"User-Agent":      {"Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"},
@@ -221,22 +222,26 @@ func sendRawRequest(c context.Context, urls []string) <-chan string {
 			}
 
 			res, err := client.Do(req)
-			defer res.Body.Close()
-
 			if err != nil {
-				fmt.Printf("[!] Request to %s url failed with error: %s", url, err.Error())
+				errors <- fmt.Errorf("[!] Request to %s url failed with error: %w", url, err)
+				return
 			}
+
+			defer res.Body.Close()
 
 			resBody, err := io.ReadAll(res.Body)
 			if err != nil {
-				fmt.Printf("[!] Failed to read response for %s url, error: %s", url, err.Error())
+				fmt.Printf("[!] Failed to read response for %s url, error: %s\n", url, err.Error())
 			}
 
-			respones <- string(resBody)
+			responses <- string(resBody)
 		}()
 	}
+	wg.Wait()
+	close(responses)
+	close(errors)
 
-	return respones
+	return responses, errors
 }
 
 func FAllParams(url string, crawl bool) []string {
@@ -248,16 +253,13 @@ func FAllParams(url string, crawl bool) []string {
 	if crawl {
 		urls := extractJsPath(htmlContent)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		respones := sendRawRequest(ctx, urls)
+		responses, _ := sendRawRequest(url, urls)
 
 		var packedBodies []string
 		packedBodies = append(packedBodies, htmlContent)
 
-		for body := range respones {
-			packedBodies = append(packedBodies, body)
+		for res := range responses {
+			packedBodies = append(packedBodies, res)
 		}
 
 		htmlContent = strings.Join(packedBodies, ",")
