@@ -180,7 +180,7 @@ func main() {
 	hunt := flag.NewFlagSet("hunt", flag.ExitOnError)
 	hunt.StringVar(&huntTarget, "target", "", "target domain to hunt.")
 	hunt.BoolVar(&alone, "alone", false, "hunting for a single target which doesn't exists on DB.")
-	hunt.BoolVar(&crawl, "crawl", true, "discover parameters in all js files as well, default=true.")
+	hunt.BoolVar(&crawl, "crawl", false, "discover parameters in all js files as well.")
 
 	flag.Parse()
 

@@ -77,9 +77,9 @@ func extractParams(pattern string, html string, paramCh chan []string, errCh cha
 
 func findAllParams(html string) (<-chan []string, <-chan error) {
 	patterns := []string{`(?:<input.*?name)(?:="|')(.*?)(?:'|")`, // html name keys
-		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`,        // html id keys
-		`(?:(?:let|const|var)\s*)(\w+)`,              // JS variable names
-		`(?:[{,]\s*(?:['"])?)(.+?)(?:\s*)(?:['"]?:)`, // JS object keys
+		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`,             // html id keys
+		`(?:(?:let|const|var)\s*)(\w+)`,                   // JS variable names
+		`(?:[{,]\s*(?:['"])?)([\w_-]+?)(?:\s*)(?:['"]?:)`, // JS object keys
 	}
 
 	params := make(chan []string, len(patterns))
@@ -100,51 +100,35 @@ func findAllParams(html string) (<-chan []string, <-chan error) {
 	close(errors)
 
 	return params, errors
-
-}
-
-func mergeParams(paramSlices [][]string, params chan string) {
-	var wg sync.WaitGroup
-
-	for _, slice := range paramSlices {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for _, val := range slice {
-				params <- val
-			}
-		}()
-	}
-	wg.Wait()
-	close(params)
 }
 
 func merge(params <-chan []string) <-chan string {
+	mergedParams := make(chan string)
+	var wg sync.WaitGroup
 
-	var totalLen int
-	var paramSlices [][]string
+	for paramSlice := range params {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-	// with knowing exact number of params, we can create a buffered channel.
-	for slice := range params {
-		totalLen += len(slice)
-		paramSlices = append(paramSlices, slice)
+			for _, val := range paramSlice {
+				mergedParams <- val
+			}
+		}()
 	}
-
-	allParams := make(chan string, totalLen)
-
 	go func() {
-		mergeParams(paramSlices, allParams)
+		wg.Wait()
+		close(mergedParams)
 	}()
 
-	return allParams
-
+	return mergedParams
 }
 
-func uniqueParams(params []string) ([]string, map[string]int) {
+func uniqueParams(params <-chan string) ([]string, map[string]int) {
 	seen := make(map[string]int, len(params))
 	var uniqueParams []string
 
-	for _, val := range params {
+	for val := range params {
 		if _, ok := seen[val]; !ok {
 			seen[val] = 1
 			uniqueParams = append(uniqueParams, val)
@@ -237,10 +221,11 @@ func sendRawRequest(host string, urls []string) (<-chan string, <-chan error) {
 			responses <- string(resBody)
 		}()
 	}
-	wg.Wait()
-	close(responses)
-	close(errors)
-
+	go func() {
+		wg.Wait()
+		close(responses)
+		close(errors)
+	}()
 	return responses, errors
 }
 
@@ -251,6 +236,7 @@ func FAllParams(url string, crawl bool) []string {
 	}
 
 	if crawl {
+		fmt.Println("[*] Crawling mode...")
 		urls := extractJsPath(htmlContent)
 
 		responses, _ := sendRawRequest(url, urls)
@@ -273,13 +259,10 @@ func FAllParams(url string, crawl bool) []string {
 	// }
 
 	mergedParams := merge(params)
-	var rs []string
 
-	for val := range mergedParams {
-		rs = append(rs, val)
-	}
-	uniques, _ := uniqueParams(rs)
+	uniques, _ := uniqueParams(mergedParams)
 	// <-loggingDone
 	fmt.Println("[*] Finished.")
+
 	return uniques
 }
