@@ -94,11 +94,12 @@ func findAllParams(html string) (<-chan []string, <-chan error) {
 			extractParams(pattern, html, params, errors)
 		}()
 	}
-	wg.Wait()
+	go func() {
+		wg.Wait()
 
-	close(params)
-	close(errors)
-
+		close(params)
+		close(errors)
+	}()
 	return params, errors
 }
 
@@ -192,7 +193,11 @@ func sendRawRequest(host string, urls []string) (<-chan string, <-chan error) {
 		go func() {
 			defer wg.Done()
 			fmt.Printf("[*] Sending request to %s\n", url)
-			req, _ := http.NewRequest("GET", host+url, nil)
+			req, err := http.NewRequest("GET", host+"/"+url, nil)
+			if err != nil {
+				errors <- fmt.Errorf("[!] Failed to construct the request object, url: %s, err: %w", url, err)
+				return
+			}
 
 			req.Header = http.Header{
 				"User-Agent":      {"Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"},
