@@ -17,6 +17,20 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+var (
+	htmlNamePattern, _    = regexp.Compile(`(?:<input.*?name)(?:="|')(.*?)(?:'|")`)
+	htmlIdPattern, _      = regexp.Compile(`(?:<input.*?id)(?:="|')(.*?)(?:'|")`)
+	JsVariablePattern, _  = regexp.Compile(`(?:(?:let|const|var)\s*)(\w+)`)
+	JsObjKeysPattern, _   = regexp.Compile(`(?:[{,]\s*(?:['"])?)([\w_-]+?)(?:\s*)(?:['"]?:)`)
+	HttpUrlParams, _      = regexp.Compile(`[?&](.*?)(?:=)`)
+	HttpPostParams, _     = regexp.Compile(`(?:&|^)([a-zA-Z+\d%]*?)=`)
+	HttpMultipartNames, _ = regexp.Compile(` name="(.*?)"`)
+)
+
+var contentTypeToPattern = make(map[string][]*regexp.Regexp)
+
+
+
 func headlessRequest(url string) (string, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("ignore-certificate-errors", true),
@@ -80,6 +94,9 @@ func findAllParams(html string) (<-chan []string, <-chan error) {
 		`(?:<input.*?id)(?:="|')(.*?)(?:'|")`,             // html id keys
 		`(?:(?:let|const|var)\s*)(\w+)`,                   // JS variable names
 		`(?:[{,]\s*(?:['"])?)([\w_-]+?)(?:\s*)(?:['"]?:)`, // JS object keys
+		`[?&](.*?)(?:=)`,                                  // http url parameters
+		`(?:&|^)([a-zA-Z+\d%]*?)=`,                        // http post parameters
+		` name="(.*?)"`,                                   // multipart data name keys
 	}
 
 	params := make(chan []string, len(patterns))

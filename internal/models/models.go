@@ -35,6 +35,7 @@ type Parameter struct {
 	SimpleModel
 	Parameter string   `gorm:"uniqueIndex;not null;size:255;"`
 	Domains   []Domain `gorm:"many2many:domain_parameters;"`
+	Endpoints   []Domain `gorm:"many2many:endpoint_parameters;"`
 }
 
 type Endpoint struct {
