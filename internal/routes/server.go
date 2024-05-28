@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -26,7 +27,8 @@ func main() {
 
 	r.Use(middleware.Logger)
 
-	r.Post("/target/", s.CreateTarget)
+	r.Post("/target/", s.createTarget)
+	r.Put("/target/", s.editTarget)
 
 	log.Printf("Listening on %s", s.address)
 	http.ListenAndServe(s.address, s.router)
@@ -43,11 +45,23 @@ func initDb() *mongo.Database {
 	}
 
 	err = client.Ping(ctx, nil)
-	if err != nil{
+	if err != nil {
 		log.Fatalf("[!] Database ping wasnt successfull. err: %w", err)
 	}
 
-	return client.Database("EagleEye")
+	indexModel := mongo.IndexModel{
+		Keys:    bson.D{{Key: "name", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}
+
+	db := client.Database("EagleEye")
+	_, err = db.Collection("targets").Indexes().CreateOne(ctx, indexModel)
+
+	if err != nil {
+		log.Fatalf("[!] An error occured when tried to create index o, targets collection, err: %w", err)
+	}
+
+	return db
 
 }
 
