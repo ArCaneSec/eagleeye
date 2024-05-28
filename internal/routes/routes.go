@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"net/http"
 	"time"
 )
 
-func (s *Server) CreateTarget(w http.ResponseWriter, r *http.Request) {
+func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 	var target m.Target
 	err := json.NewDecoder(r.Body).Decode(&target)
 
@@ -27,11 +31,45 @@ func (s *Server) CreateTarget(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	_, err = s.db.Collection("targets").InsertOne(ctx, target)
+
 	if err != nil {
-		s.jsonEncode(w, http.StatusBadRequest, err)
-		fmt.Println(err)
+		errMessage := map[string]string{}
+
+		if mongo.IsDuplicateKeyError(err) {
+			errMessage["error"] = "[!] Target already exits."
+		} else {
+			errMessage["error"] = fmt.Sprintf("[!] Unexpected error occures, err: %w", err)
+		}
+
+		s.jsonEncode(w, http.StatusBadRequest, errMessage)
 		return
 	}
 
 	s.jsonEncode(w, http.StatusCreated, map[string]string{"message": "created."})
+}
+
+func (s *Server) editTarget(w http.ResponseWriter, r *http.Request) {
+	var target m.Target
+	json.NewDecoder(r.Body).Decode(&target)
+
+	if errs := target.Validate(); len(errs) != 0 {
+		s.jsonEncode(w, http.StatusBadRequest, errs)
+		return
+	}
+	update := bson.D{
+		{"$set", bson.D{
+			{"bounty", target.Bounty},
+			{"scope", target.Scope},
+			{"outOfScope", target.OutOfScope},
+		}},
+	}
+
+	rs, err := s.db.Collection("targets").UpdateOne(queryContext(), bson.D{{"name", target.Name}}, update)
+	if err != nil {
+		s.jsonEncode(w, http.StatusBadGateway, err)
+		return
+	}
+
+	message := map[string]string{"message": fmt.Sprintf("successfully updated %d record.", rs.MatchedCount)}
+	s.jsonEncode(w, http.StatusAccepted, message)
 }

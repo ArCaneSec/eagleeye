@@ -4,7 +4,7 @@ type Target struct {
 	Name       string   `json:"name"`
 	Bounty     *bool    `json:"bounty"`
 	Scope      []string `json:"scope"`
-	OutOfScope []string `json:"outOfScope"`
+	OutOfScope []string `json:"outOfScope" bson:"outOfScope"`
 	Source     string   `json:"source"`
 }
 
@@ -25,6 +25,10 @@ func (t *Target) Validate() map[string]string {
 
 	if t.Source == "" {
 		errors["source"] = "required."
+	}
+
+	if t.Source != "hackerone" || t.Source != "bugcrowd" || t.Source != "integrity" || t.Source != "yeswehack" {
+		errors["source"] = "invalid value."
 	}
 
 	return errors
