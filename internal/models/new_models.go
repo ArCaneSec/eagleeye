@@ -1,5 +1,11 @@
 package models
 
+import (
+	"strings"
+)
+
+type jsonErrors map[string]map[string]string
+
 type Target struct {
 	Name       string   `json:"name"`
 	Bounty     *bool    `json:"bounty"`
@@ -8,27 +14,23 @@ type Target struct {
 	Source     string   `json:"source"`
 }
 
-func (t *Target) Validate() map[string]string {
-	errors := map[string]string{}
+func (t *Target) Validate() jsonErrors {
+	errors := map[string]map[string]string{}
 
-	if t.Name == "" {
-		errors["name"] = "required."
+	if strings.TrimSpace(t.Name) == "" {
+		errors["name"] = map[string]string{"error": "required"}
 	}
 
 	if t.Bounty == nil {
-		errors["bounty"] = "required."
+		errors["bounty"] = map[string]string{"error": "required"}
 	}
 
 	if len(t.Scope) == 0 {
-		errors["scope"] = "required."
-	}
-
-	if t.Source == "" {
-		errors["source"] = "required."
+		errors["scope"] = map[string]string{"error": "required."}
 	}
 
 	if t.Source != "hackerone" || t.Source != "bugcrowd" || t.Source != "integrity" || t.Source != "yeswehack" {
-		errors["source"] = "invalid value."
+		errors["source"] = map[string]string{"error": "invalid value."}
 	}
 
 	return errors

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
+	"github.com/go-chi/chi/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -72,4 +74,25 @@ func (s *Server) editTarget(w http.ResponseWriter, r *http.Request) {
 
 	message := map[string]string{"message": fmt.Sprintf("successfully updated %d record.", rs.MatchedCount)}
 	s.jsonEncode(w, http.StatusAccepted, message)
+}
+
+func (s *Server) activeJob(w http.ResponseWriter, r *http.Request) {
+	jobId := chi.URLParam(r, "id")
+	intJobId, _ := strconv.Atoi(jobId)
+
+	err := s.schedular.ActiveJob(intJobId)
+	if err != nil{
+		s.jsonEncode(w, http.StatusBadRequest, err)
+	}
+}
+
+func (s *Server) deactiveJob(w http.ResponseWriter, r *http.Request) {
+	jobId := chi.URLParam(r, "id")
+	intJobId, _ := strconv.Atoi(jobId)
+
+	err := s.schedular.DeactiveJob(intJobId)
+
+	if err != nil{
+		s.jsonEncode(w, http.StatusBadRequest, err)
+	}
 }

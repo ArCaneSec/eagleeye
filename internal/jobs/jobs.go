@@ -2,25 +2,25 @@ package jobs
 
 import (
 	"fmt"
+
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
 )
 
 type job struct {
-	id       int
 	duration time.Duration
 	job      gocron.Job
 	task     func()
 	active   bool
 }
 
-type schedular struct {
+type Scheduler struct {
 	core gocron.Scheduler
-	jobs []job
+	jobs []*job
 }
 
-func (s *schedular) DeactiveJob(id int) error {
+func (s *Scheduler) DeactiveJob(id int) error {
 	if id == 0 || id > len(s.jobs) {
 		return fmt.Errorf("invalid id: %d", id)
 	}
@@ -32,12 +32,15 @@ func (s *schedular) DeactiveJob(id int) error {
 	return nil
 }
 
-func (s *schedular) ActiveJob(id int) error {
+func (s *Scheduler) ActiveJob(id int) error {
 	if id == 0 || id > len(s.jobs) {
 		return fmt.Errorf("invalid id: %d", id)
 	}
 
 	job := s.jobs[id-1]
+	if job.active {
+		return fmt.Errorf("job id %d is already active", id)
+	}
 
 	j, _ := s.core.NewJob(gocron.DurationJob(job.duration), gocron.NewTask(job.task))
 
@@ -47,24 +50,24 @@ func (s *schedular) ActiveJob(id int) error {
 	return nil
 }
 
-func ScheduleJobs() *schedular {
+func ScheduleJobs() *Scheduler {
 	s, _ := gocron.NewScheduler()
 
-	jobs := []job{
-		{1, time.Minute, nil, SubdomainEnumerate, true},
+	jobs := []*job{
+		{2 * time.Second, nil, subdomainEnumerate, false},
 	}
 
-	schedular := &schedular{s, jobs}
+	scheduler := &Scheduler{s, jobs}
 
-	for id, _ := range schedular.jobs {
-		schedular.ActiveJob(id + 1)
+	for id := range scheduler.jobs {
+		scheduler.ActiveJob(id + 1)
 	}
 
 	s.Start()
 
-	return schedular
+	return scheduler
 }
 
-func SubdomainEnumerate() {
+func subdomainEnumerate() {
 	fmt.Println("test")
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"EagleEye/internal/jobs"
 	"context"
 	"encoding/json"
 	"log"
@@ -15,20 +16,23 @@ import (
 )
 
 type Server struct {
-	address string
-	router  *chi.Mux
-	db      *mongo.Database
+	address   string
+	router    *chi.Mux
+	db        *mongo.Database
+	schedular *jobs.Scheduler
 }
 
 func main() {
 	r := chi.NewRouter()
 
-	s := &Server{":5000", r, initDb()}
+	s := &Server{":5000", r, initDb(), jobs.ScheduleJobs()}
 
 	r.Use(middleware.Logger)
 
 	r.Post("/target/", s.createTarget)
 	r.Put("/target/", s.editTarget)
+	r.Post("/job/{id:[0-9]{1,3}}", s.activeJob)
+	r.Delete("/job/{id:[0-9]{1,3}}", s.deactiveJob)
 
 	log.Printf("Listening on %s", s.address)
 	http.ListenAndServe(s.address, s.router)
@@ -69,10 +73,22 @@ func (s *Server) jsonEncode(w http.ResponseWriter, sCode int, data any) {
 	w.Header().Set("Content-Type", "Application/json")
 	w.WriteHeader(sCode)
 
+	
+	if err, ok := data.(error); ok {
+		data = map[string]any{"error": err.Error()}
+	}
+
 	err := json.NewEncoder(w).Encode(data)
 
 	if err != nil {
 		log.Fatalf("[!] error while serializing data, err: %w", err)
 		return
 	}
+}
+
+func (s *Server) httpError(w http.ResponseWriter, sCode int, data string) {
+	w.Header().Set("Content-Type", "Application/json")
+	w.WriteHeader(sCode)
+
+	json.NewEncoder(w).Encode(data)
 }
