@@ -83,7 +83,9 @@ func (s *Server) activeJob(w http.ResponseWriter, r *http.Request) {
 	err := s.schedular.ActiveJob(intJobId)
 	if err != nil{
 		s.jsonEncode(w, http.StatusBadRequest, err)
+		return
 	}
+	s.jsonEncode(w, http.StatusOK, "activated")
 }
 
 func (s *Server) deactiveJob(w http.ResponseWriter, r *http.Request) {
@@ -94,5 +96,7 @@ func (s *Server) deactiveJob(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil{
 		s.jsonEncode(w, http.StatusBadRequest, err)
+		return
 	}
+	s.jsonEncode(w, http.StatusAccepted, "deactivated")
 }

@@ -73,9 +73,10 @@ func (s *Server) jsonEncode(w http.ResponseWriter, sCode int, data any) {
 	w.Header().Set("Content-Type", "Application/json")
 	w.WriteHeader(sCode)
 
-	
 	if err, ok := data.(error); ok {
 		data = map[string]any{"error": err.Error()}
+	} else if str, ok := data.(string); ok {
+		data = map[string]any{"message": str}
 	}
 
 	err := json.NewEncoder(w).Encode(data)
@@ -84,11 +85,4 @@ func (s *Server) jsonEncode(w http.ResponseWriter, sCode int, data any) {
 		log.Fatalf("[!] error while serializing data, err: %w", err)
 		return
 	}
-}
-
-func (s *Server) httpError(w http.ResponseWriter, sCode int, data string) {
-	w.Header().Set("Content-Type", "Application/json")
-	w.WriteHeader(sCode)
-
-	json.NewEncoder(w).Encode(data)
 }
