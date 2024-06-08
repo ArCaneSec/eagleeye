@@ -25,7 +25,8 @@ type Server struct {
 func main() {
 	r := chi.NewRouter()
 
-	s := &Server{":5000", r, initDb(), jobs.ScheduleJobs()}
+	s := &Server{address: ":5000", router: r, db: initDb()}
+	s.schedular = jobs.ScheduleJobs(s.db)
 
 	r.Use(middleware.Logger)
 
@@ -62,7 +63,16 @@ func initDb() *mongo.Database {
 	_, err = db.Collection("targets").Indexes().CreateOne(ctx, indexModel)
 
 	if err != nil {
-		log.Fatalf("[!] An error occured when tried to create index o, targets collection, err: %w", err)
+		log.Fatalf("[!] An error occured when tried to create index for targets collection, err: %w", err)
+	}
+
+	sdIndexModel := mongo.IndexModel{
+		Keys:    bson.D{{"subdomain", 1}},
+		Options: options.Index().SetUnique(true),
+	}
+	_, err = db.Collection("subdomains").Indexes().CreateOne(ctx, sdIndexModel)
+	if err != nil {
+		log.Fatalf("[!] Error while tried to create index for subdomains collection, err: %w", err)
 	}
 
 	return db

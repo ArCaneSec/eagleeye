@@ -1,43 +1,59 @@
 package jobs
 
 import (
+	m "EagleEye/internal/models"
 	"context"
 	"fmt"
-	"io"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+type taskFunc func(context.Context)
 
 type job struct {
 	duration time.Duration
-	job      gocron.Job
-	task     func()
+	cronJob  gocron.Job
+	task     taskFunc
 	active   bool
+	killer   context.CancelFunc
 }
 
-func notif(data string) {
-	fmt.Println(data)
+func (j *job) runTask() {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	j.killer = cancel
+	j.task(ctx)
 }
 
-func errNotif(err error, val string) {
-	fmt.Println(err, val)
+type task struct {
+	db      *mongo.Database
+	webhook string
 }
 
-func execute(ctx context.Context, command string, args ...string) (string, error) {
+func (t *task) newAssetNotif(asset []string) {
+	fmt.Println(asset)
+}
+
+func (t *task) errNotif(detail string, err error) {
+	fmt.Println(detail)
+	fmt.Println(err)
+}
+
+func (t *task) execute(ctx context.Context, command string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 
-	err := cmd.Run()
+	op, err := cmd.CombinedOutput()
 
 	if err != nil {
-		// stderr, _ := cmd.StderrPipe()
-		// op, _ := io.ReadAll(stderr)
-		return "", err
+		return string(op), err
 	}
-
-	stdout, _ := cmd.StdoutPipe()
-	op, _ := io.ReadAll(stdout)
 
 	return string(op), nil
 }
@@ -57,8 +73,9 @@ func (s *Scheduler) DeactiveJob(id int) error {
 		return fmt.Errorf("job id %d is already inactive", id)
 	}
 
-	s.core.RemoveJob(job.job.ID())
+	s.core.RemoveJob(job.cronJob.ID())
 	job.active = false
+	job.killer()
 
 	return nil
 }
@@ -73,20 +90,21 @@ func (s *Scheduler) ActiveJob(id int) error {
 		return fmt.Errorf("job id %d is already active", id)
 	}
 
-	j, _ := s.core.NewJob(gocron.DurationJob(job.duration), gocron.NewTask(job.task), gocron.WithStartAt(gocron.WithStartImmediately()))
+	j, _ := s.core.NewJob(gocron.DurationJob(job.duration), gocron.NewTask(job.runTask), gocron.WithStartAt(gocron.WithStartImmediately()))
 
-	job.job = j
+	job.cronJob = j
 	job.active = true
 
 	return nil
 }
 
-func ScheduleJobs() *Scheduler {
+func ScheduleJobs(db *mongo.Database) *Scheduler {
 	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(1, gocron.LimitModeWait))
+	t := task{db, "discord-webhook"}
 
 	jobs := []*job{
-		{5 * time.Second, nil, subdomainEnumerate, false},
-		// {5 * time.Second, nil, test, false},
+		{duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false},
+		{duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false},
 	}
 
 	scheduler := &Scheduler{s, jobs}
@@ -99,21 +117,71 @@ func ScheduleJobs() *Scheduler {
 	return scheduler
 }
 
-func subdomainEnumerate() {
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
-	defer cancel()
+func (t *task) subdomainEnumerate(ctx context.Context) {
+	var targets []m.Target
 
-	op, err := execute(ctx, "subfinder", "-s", "-d", "memoryleaks.ir")
+	val, _ := t.db.Collection("targets").Find(ctx, bson.D{{}})
 
-	if err != nil {
-		errNotif(err, op)
+	if err := val.All(ctx, &targets); err != nil {
+		fmt.Println(err)
 		return
 	}
+	now := time.Now()
 
-	notif(op)
-}
+	cursor := t.db.Collection("subdomains")
 
-func test() {
-	fmt.Println("test job")
-	time.Sleep(3 * time.Second)
+	for _, target := range targets {
+		fmt.Printf("[*] Starting subdomain enumeration on %s\n", target.Name)
+
+		for _, domain := range target.Scope {
+			fmt.Printf("[~] Current domain: %s\n", domain)
+
+			op, err := t.execute(ctx, "subfinder", "-d", domain, "-all", "-silent")
+
+			if err != nil {
+				t.errNotif(op, err)
+				continue
+			}
+
+			var subdomains []interface{}
+
+			subs := strings.Split(op, "\n")
+			
+
+			for _, sub := range subs {
+				sub = strings.TrimSpace(sub)
+				if sub == "" {
+					continue
+				}
+
+				subdomains = append(subdomains, m.Subdomain{sub, now})
+			}
+
+			breakAfterFirstFail := options.InsertMany().SetOrdered(false)
+
+			val, err := cursor.InsertMany(ctx, subdomains, breakAfterFirstFail)
+			if err != nil && !mongo.IsDuplicateKeyError(err) {
+				t.errNotif("[!] Error while inserting subdomains to database", err)
+			}
+
+			fmt.Printf("[+] Found %d new subdomains.\n", len(val.InsertedIDs))
+
+			if len(val.InsertedIDs) != 0 {
+				filter := bson.D{{"_id", bson.D{{"$in", val.InsertedIDs}}}}
+				values := options.Find().SetProjection(bson.D{{"subdomain", 1}})
+
+				newSubsRecords, _ := cursor.Find(context.TODO(), filter, values)
+				var newSubsObjs []m.Subdomain 
+
+				newSubsRecords.All(context.TODO(), &newSubsObjs)
+
+				var allSubs []string
+				for _, subObj := range newSubsObjs{
+					allSubs = append(allSubs, subObj.Subdomain)
+				}
+
+				t.newAssetNotif(allSubs)
+			}
+		}
+	}
 }

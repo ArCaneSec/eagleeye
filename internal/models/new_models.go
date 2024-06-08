@@ -2,6 +2,7 @@ package models
 
 import (
 	"strings"
+	"time"
 )
 
 type jsonErrors map[string]map[string]string
@@ -34,4 +35,10 @@ func (t *Target) Validate() jsonErrors {
 	}
 
 	return errors
+}
+
+
+type Subdomain struct {
+	Subdomain string
+	Created time.Time
 }
