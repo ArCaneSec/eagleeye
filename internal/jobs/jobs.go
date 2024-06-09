@@ -17,15 +17,16 @@ import (
 type taskFunc func(context.Context)
 
 type job struct {
-	duration time.Duration
-	cronJob  gocron.Job
-	task     taskFunc
-	active   bool
-	killer   context.CancelFunc
+	duration  time.Duration
+	cronJob   gocron.Job
+	task      taskFunc
+	active    bool
+	cDuration time.Duration
+	killer    context.CancelFunc
 }
 
 func (j *job) runTask() {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), j.cDuration)
 	defer cancel()
 
 	j.killer = cancel
@@ -103,8 +104,8 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 	t := task{db, "discord-webhook"}
 
 	jobs := []*job{
-		{duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false},
-		{duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false},
+		{duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false, cDuration: 1 * time.Second},
+		// {duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false},
 	}
 
 	scheduler := &Scheduler{s, jobs}
@@ -131,56 +132,62 @@ func (t *task) subdomainEnumerate(ctx context.Context) {
 	cursor := t.db.Collection("subdomains")
 
 	for _, target := range targets {
-		fmt.Printf("[*] Starting subdomain enumeration on %s\n", target.Name)
 
 		for _, domain := range target.Scope {
-			fmt.Printf("[~] Current domain: %s\n", domain)
+			select {
+			case <-ctx.Done():
+				t.errNotif("", fmt.Errorf("[!] Context deadline exceeds in subdomain enumeration job"))
+				return
 
-			op, err := t.execute(ctx, "subfinder", "-d", domain, "-all", "-silent")
+			default:
+				fmt.Printf("[~] Current domain: %s\n", domain)
 
-			if err != nil {
-				t.errNotif(op, err)
-				continue
-			}
+				op, err := t.execute(ctx, "subfinder", "-d", domain, "-all", "-silent")
 
-			var subdomains []interface{}
-
-			subs := strings.Split(op, "\n")
-			
-
-			for _, sub := range subs {
-				sub = strings.TrimSpace(sub)
-				if sub == "" {
+				if err != nil {
+					t.errNotif(op, err)
 					continue
 				}
 
-				subdomains = append(subdomains, m.Subdomain{sub, now})
-			}
+				var subdomains []interface{}
 
-			breakAfterFirstFail := options.InsertMany().SetOrdered(false)
+				subs := strings.Split(op, "\n")
 
-			val, err := cursor.InsertMany(ctx, subdomains, breakAfterFirstFail)
-			if err != nil && !mongo.IsDuplicateKeyError(err) {
-				t.errNotif("[!] Error while inserting subdomains to database", err)
-			}
+				for _, sub := range subs {
+					sub = strings.TrimSpace(sub)
+					if sub == "" {
+						continue
+					}
 
-			fmt.Printf("[+] Found %d new subdomains.\n", len(val.InsertedIDs))
-
-			if len(val.InsertedIDs) != 0 {
-				filter := bson.D{{"_id", bson.D{{"$in", val.InsertedIDs}}}}
-				values := options.Find().SetProjection(bson.D{{"subdomain", 1}})
-
-				newSubsRecords, _ := cursor.Find(context.TODO(), filter, values)
-				var newSubsObjs []m.Subdomain 
-
-				newSubsRecords.All(context.TODO(), &newSubsObjs)
-
-				var allSubs []string
-				for _, subObj := range newSubsObjs{
-					allSubs = append(allSubs, subObj.Subdomain)
+					subdomains = append(subdomains, m.Subdomain{Target: target.ID, Subdomain: sub, Created: now})
 				}
 
-				t.newAssetNotif(allSubs)
+				breakAfterFirstFail := options.InsertMany().SetOrdered(false)
+
+				val, err := cursor.InsertMany(ctx, subdomains, breakAfterFirstFail)
+				if err != nil && !mongo.IsDuplicateKeyError(err) {
+					t.errNotif("[!] Error while inserting subdomains to database", err)
+					return
+				}
+
+				fmt.Printf("[+] Found %d new subdomains.\n", len(val.InsertedIDs))
+
+				if len(val.InsertedIDs) != 0 {
+					filter := bson.D{{"_id", bson.D{{"$in", val.InsertedIDs}}}}
+					values := options.Find().SetProjection(bson.D{{"subdomain", 1}})
+
+					newSubsRecords, _ := cursor.Find(context.TODO(), filter, values)
+					var newSubsObjs []m.Subdomain
+
+					newSubsRecords.All(context.TODO(), &newSubsObjs)
+
+					var allSubs []string
+					for _, subObj := range newSubsObjs {
+						allSubs = append(allSubs, subObj.Subdomain)
+					}
+
+					t.newAssetNotif(allSubs)
+				}
 			}
 		}
 	}

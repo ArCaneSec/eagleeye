@@ -3,16 +3,19 @@ package models
 import (
 	"strings"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type jsonErrors map[string]map[string]string
 
 type Target struct {
-	Name       string   `json:"name"`
-	Bounty     *bool    `json:"bounty"`
-	Scope      []string `json:"scope"`
-	OutOfScope []string `json:"outOfScope" bson:"outOfScope"`
-	Source     string   `json:"source"`
+	ID         primitive.ObjectID `bson:"_id"`
+	Name       string             `json:"name"`
+	Bounty     *bool              `json:"bounty"`
+	Scope      []string           `json:"scope"`
+	OutOfScope []string           `json:"outOfScope" bson:"outOfScope"`
+	Source     string             `json:"source"`
 }
 
 func (t *Target) Validate() jsonErrors {
@@ -37,8 +40,9 @@ func (t *Target) Validate() jsonErrors {
 	return errors
 }
 
-
 type Subdomain struct {
+	ID        primitive.ObjectID `bson:"_id"`
+	Target    primitive.ObjectID
 	Subdomain string
-	Created time.Time
+	Created   time.Time
 }
