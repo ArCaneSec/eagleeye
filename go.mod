@@ -7,6 +7,7 @@ require (
 	github.com/chromedp/chromedp v0.9.5
 	github.com/go-chi/chi/v5 v5.0.12
 	github.com/go-co-op/gocron/v2 v2.5.0
+	github.com/joho/godotenv v1.5.1
 	go.mongodb.org/mongo-driver v1.15.0
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/gorm v1.25.10

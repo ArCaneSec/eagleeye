@@ -3,11 +3,14 @@ package models
 import (
 	"strings"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type jsonErrors map[string]map[string]string
 
 type Target struct {
+	ID primitive.ObjectID `bson:"_id,omitempty"`
 	Name       string   `json:"name"`
 	Bounty     *bool    `json:"bounty"`
 	Scope      []string `json:"scope"`
@@ -30,15 +33,18 @@ func (t *Target) Validate() jsonErrors {
 		errors["scope"] = map[string]string{"error": "required."}
 	}
 
-	if t.Source != "hackerone" || t.Source != "bugcrowd" || t.Source != "integrity" || t.Source != "yeswehack" {
+	if t.Source != "hackerone" && t.Source != "bugcrowd" && t.Source != "integrity" && t.Source != "yeswehack" {
 		errors["source"] = map[string]string{"error": "invalid value."}
 	}
 
 	return errors
 }
 
-
 type Subdomain struct {
+	ID primitive.ObjectID `bson:"_id,omitempty"`
+	Target    primitive.ObjectID
 	Subdomain string
-	Created time.Time
+	Dns       bool
+	Http      bool
+	Created   time.Time
 }
