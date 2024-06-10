@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sync"
 )
 
@@ -40,9 +39,9 @@ type Discord struct {
 	Content string  `json:"content,omitempty"`
 }
 
-func NewInfo() Provider {
+func NewInfo(webhook string) Provider {
 	d := &Discord{}
-	d.webhook = os.Getenv("DISCORD_WEBHOOK")
+	d.webhook = webhook
 	footer := Footer{Text: "Eagle Eye"}
 
 	embed := Embed{
@@ -74,14 +73,14 @@ func (d *Discord) SendMessage(jobName string, desc string, msgKey string, msgVal
 		go func() {
 			defer wg.Done()
 
-			newDis := NewInfo()
+			newDis := NewInfo(d.webhook)
 			newDis.SendMessage(jobName, desc, msgKey, firstHalf)
 		}()
 
 		go func() {
 			defer wg.Done()
 
-			newDis := NewInfo()
+			newDis := NewInfo(d.webhook)
 			newDis.SendMessage(jobName, desc, msgKey, secondHalf)
 		}()
 

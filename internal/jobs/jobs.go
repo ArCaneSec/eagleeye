@@ -4,6 +4,7 @@ import (
 	m "EagleEye/internal/models"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ type job struct {
 	active    bool
 	cDuration time.Duration
 	killer    context.CancelFunc
+	isRunning bool
 }
 
 func (j *job) runTask() {
@@ -30,7 +32,9 @@ func (j *job) runTask() {
 	defer cancel()
 
 	j.killer = cancel
+	j.isRunning = true
 	j.task(ctx)
+	j.isRunning = false
 }
 
 type task struct {
@@ -39,7 +43,7 @@ type task struct {
 }
 
 func (t *task) newAssetNotif(target string, domain string, asset []string) {
-	d := NewInfo()
+	d := NewInfo(t.webhook)
 
 	// var l []string
 	// for i := 0; i < 100; i++ {
@@ -86,7 +90,10 @@ func (s *Scheduler) DeactiveJob(id int) error {
 
 	s.core.RemoveJob(job.cronJob.ID())
 	job.active = false
-	job.killer()
+
+	if job.isRunning {
+		job.killer()
+	}
 
 	return nil
 }
@@ -110,20 +117,20 @@ func (s *Scheduler) ActiveJob(id int) error {
 }
 
 func ScheduleJobs(db *mongo.Database) *Scheduler {
-	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(1, gocron.LimitModeWait))
-	t := task{db, "discord-webhook"}
+	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(3, gocron.LimitModeWait))
+	t := task{db, os.Getenv("DISCORD_WEBHOOK")}
 
 	jobs := []*job{
-		{duration: 6 * time.Hour, cronJob: nil, task: t.subdomainEnumerate, active: false, cDuration: 1 * time.Hour},
-		// {duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false},
+		{duration: 6 * time.Hour, task: t.subdomainEnumerate, cDuration: 1 * time.Hour},
 	}
 
 	scheduler := &Scheduler{s, jobs}
 
+	s.Start()
 	for id := range scheduler.jobs {
 		scheduler.ActiveJob(id + 1)
+		time.Sleep(5 * time.Millisecond)
 	}
-	s.Start()
 
 	return scheduler
 }
