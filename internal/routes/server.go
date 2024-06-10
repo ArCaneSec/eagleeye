@@ -13,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/joho/godotenv"
 )
 
 type Server struct {
@@ -23,6 +24,7 @@ type Server struct {
 }
 
 func main() {
+	godotenv.Load("../../.env")
 	r := chi.NewRouter()
 
 	s := &Server{address: ":5000", router: r, db: initDb()}

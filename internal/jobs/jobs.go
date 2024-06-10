@@ -38,8 +38,18 @@ type task struct {
 	webhook string
 }
 
-func (t *task) newAssetNotif(asset []string) {
-	fmt.Println(asset)
+func (t *task) newAssetNotif(target string, domain string, asset []string) {
+	d := NewInfo()
+
+	// var l []string
+	// for i := 0; i < 100; i++ {
+	// 	l = append(l, fmt.Sprint(i))
+
+	// }
+	// strAssets := strings.Join(l, "\n")
+	strAssets := strings.Join(asset, "\n")
+
+	d.SendMessage("Subdomain Enumeration", fmt.Sprintf("%d new subdomains found for %s", len(asset), target), fmt.Sprintf("domain: %s", domain), strAssets)
 }
 
 func (t *task) errNotif(detail string, err error) {
@@ -104,7 +114,7 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 	t := task{db, "discord-webhook"}
 
 	jobs := []*job{
-		{duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false, cDuration: 1 * time.Second},
+		{duration: 6 * time.Hour, cronJob: nil, task: t.subdomainEnumerate, active: false, cDuration: 1 * time.Hour},
 		// {duration: 5 * time.Second, cronJob: nil, task: t.subdomainEnumerate, active: false},
 	}
 
@@ -158,7 +168,7 @@ func (t *task) subdomainEnumerate(ctx context.Context) {
 					if sub == "" {
 						continue
 					}
-
+					fmt.Println("found:", sub)
 					subdomains = append(subdomains, m.Subdomain{Target: target.ID, Subdomain: sub, Created: now})
 				}
 
@@ -186,9 +196,10 @@ func (t *task) subdomainEnumerate(ctx context.Context) {
 						allSubs = append(allSubs, subObj.Subdomain)
 					}
 
-					t.newAssetNotif(allSubs)
+					t.newAssetNotif(target.Name, domain, allSubs)
 				}
 			}
 		}
 	}
+	fmt.Println("[#] Subdomain enumeration job finished.")
 }

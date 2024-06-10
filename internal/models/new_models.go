@@ -10,12 +10,12 @@ import (
 type jsonErrors map[string]map[string]string
 
 type Target struct {
-	ID         primitive.ObjectID `bson:"_id"`
-	Name       string             `json:"name"`
-	Bounty     *bool              `json:"bounty"`
-	Scope      []string           `json:"scope"`
-	OutOfScope []string           `json:"outOfScope" bson:"outOfScope"`
-	Source     string             `json:"source"`
+	ID primitive.ObjectID `bson:"_id,omitempty"`
+	Name       string   `json:"name"`
+	Bounty     *bool    `json:"bounty"`
+	Scope      []string `json:"scope"`
+	OutOfScope []string `json:"outOfScope" bson:"outOfScope"`
+	Source     string   `json:"source"`
 }
 
 func (t *Target) Validate() jsonErrors {
@@ -33,7 +33,7 @@ func (t *Target) Validate() jsonErrors {
 		errors["scope"] = map[string]string{"error": "required."}
 	}
 
-	if t.Source != "hackerone" || t.Source != "bugcrowd" || t.Source != "integrity" || t.Source != "yeswehack" {
+	if t.Source != "hackerone" && t.Source != "bugcrowd" && t.Source != "integrity" && t.Source != "yeswehack" {
 		errors["source"] = map[string]string{"error": "invalid value."}
 	}
 
@@ -41,8 +41,10 @@ func (t *Target) Validate() jsonErrors {
 }
 
 type Subdomain struct {
-	ID        primitive.ObjectID `bson:"_id"`
+	ID primitive.ObjectID `bson:"_id,omitempty"`
 	Target    primitive.ObjectID
 	Subdomain string
+	Dns       bool
+	Http      bool
 	Created   time.Time
 }
