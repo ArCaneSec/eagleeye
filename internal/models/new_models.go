@@ -44,7 +44,7 @@ type Subdomain struct {
 	ID primitive.ObjectID `bson:"_id,omitempty"`
 	Target    primitive.ObjectID
 	Subdomain string
-	Dns       bool
-	Http      bool
+	Dns       *bool
+	Http      *bool
 	Created   time.Time
 }

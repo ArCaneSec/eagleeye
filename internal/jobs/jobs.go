@@ -1,159 +1,32 @@
 package jobs
 
 import (
-	m "EagleEye/internal/models"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
-	"time"
+	"sync"
 
-	"github.com/go-co-op/gocron/v2"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type taskFunc func(context.Context)
-
-type job struct {
-	duration  time.Duration
-	cronJob   gocron.Job
-	task      taskFunc
-	active    bool
-	cDuration time.Duration
-	killer    context.CancelFunc
-	isRunning bool
-}
-
-func (j *job) runTask() {
-	ctx, cancel := context.WithTimeout(context.Background(), j.cDuration)
-	defer cancel()
-
-	j.killer = cancel
-	j.isRunning = true
-	j.task(ctx)
-	j.isRunning = false
-}
-
-type task struct {
-	db      *mongo.Database
-	webhook string
-}
-
-func (t *task) newAssetNotif(target string, domain string, asset []string) {
-	d := NewInfo(t.webhook)
-
-	// var l []string
-	// for i := 0; i < 100; i++ {
-	// 	l = append(l, fmt.Sprint(i))
-
-	// }
-	// strAssets := strings.Join(l, "\n")
-	strAssets := strings.Join(asset, "\n")
-
-	d.SendMessage("Subdomain Enumeration", fmt.Sprintf("%d new subdomains found for %s", len(asset), target), fmt.Sprintf("domain: %s", domain), strAssets)
-}
-
-func (t *task) errNotif(detail string, err error) {
-	fmt.Println(detail)
-	fmt.Println(err)
-}
-
-func (t *task) execute(ctx context.Context, command string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
-
-	op, err := cmd.CombinedOutput()
-
-	if err != nil {
-		return string(op), err
-	}
-
-	return string(op), nil
-}
-
-type Scheduler struct {
-	core gocron.Scheduler
-	jobs []*job
-}
-
-func (s *Scheduler) DeactiveJob(id int) error {
-	if id == 0 || id > len(s.jobs) {
-		return fmt.Errorf("invalid id: %d", id)
-	}
-
-	job := s.jobs[id-1]
-	if !job.active {
-		return fmt.Errorf("job id %d is already inactive", id)
-	}
-
-	s.core.RemoveJob(job.cronJob.ID())
-	job.active = false
-
-	if job.isRunning {
-		job.killer()
-	}
-
-	return nil
-}
-
-func (s *Scheduler) ActiveJob(id int) error {
-	if id == 0 || id > len(s.jobs) {
-		return fmt.Errorf("invalid id: %d", id)
-	}
-
-	job := s.jobs[id-1]
-	if job.active {
-		return fmt.Errorf("job id %d is already active", id)
-	}
-
-	j, _ := s.core.NewJob(gocron.DurationJob(job.duration), gocron.NewTask(job.runTask), gocron.WithStartAt(gocron.WithStartImmediately()))
-
-	job.cronJob = j
-	job.active = true
-
-	return nil
-}
-
-func ScheduleJobs(db *mongo.Database) *Scheduler {
-	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(3, gocron.LimitModeWait))
-	t := task{db, os.Getenv("DISCORD_WEBHOOK")}
-
-	jobs := []*job{
-		{duration: 6 * time.Hour, task: t.subdomainEnumerate, cDuration: 1 * time.Hour},
-	}
-
-	scheduler := &Scheduler{s, jobs}
-
-	s.Start()
-	for id := range scheduler.jobs {
-		scheduler.ActiveJob(id + 1)
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	return scheduler
-}
-
 func (t *task) subdomainEnumerate(ctx context.Context) {
-	var targets []m.Target
-
-	val, _ := t.db.Collection("targets").Find(ctx, bson.D{{}})
-
-	if err := val.All(ctx, &targets); err != nil {
-		fmt.Println(err)
+	targets, err := fetchTargets(ctx, t.db)
+	if err != nil {
+		t.notify.ErrNotif("[!] Error while fetching targets", err)
 		return
 	}
-	now := time.Now()
 
-	cursor := t.db.Collection("subdomains")
+	var wg sync.WaitGroup
 
 	for _, target := range targets {
 
 		for _, domain := range target.Scope {
 			select {
 			case <-ctx.Done():
-				t.errNotif("", fmt.Errorf("[!] Context deadline exceeds in subdomain enumeration job"))
+				t.notify.ErrNotif("",
+					fmt.Errorf("[!] Context deadline exceeds in subdomain enumeration job"),
+				)
 				return
 
 			default:
@@ -162,51 +35,85 @@ func (t *task) subdomainEnumerate(ctx context.Context) {
 				op, err := t.execute(ctx, "subfinder", "-d", domain, "-all", "-silent")
 
 				if err != nil {
-					t.errNotif(op, err)
+					t.notify.ErrNotif(op, err)
 					continue
 				}
 
-				var subdomains []interface{}
-
-				subs := strings.Split(op, "\n")
-
-				for _, sub := range subs {
-					sub = strings.TrimSpace(sub)
-					if sub == "" {
-						continue
-					}
-					fmt.Println("found:", sub)
-					subdomains = append(subdomains, m.Subdomain{Target: target.ID, Subdomain: sub, Created: now})
-				}
-
-				breakAfterFirstFail := options.InsertMany().SetOrdered(false)
-
-				val, err := cursor.InsertMany(ctx, subdomains, breakAfterFirstFail)
-				if err != nil && !mongo.IsDuplicateKeyError(err) {
-					t.errNotif("[!] Error while inserting subdomains to database", err)
-					return
-				}
-
-				fmt.Printf("[+] Found %d new subdomains.\n", len(val.InsertedIDs))
-
-				if len(val.InsertedIDs) != 0 {
-					filter := bson.D{{"_id", bson.D{{"$in", val.InsertedIDs}}}}
-					values := options.Find().SetProjection(bson.D{{"subdomain", 1}})
-
-					newSubsRecords, _ := cursor.Find(context.TODO(), filter, values)
-					var newSubsObjs []m.Subdomain
-
-					newSubsRecords.All(context.TODO(), &newSubsObjs)
-
-					var allSubs []string
-					for _, subObj := range newSubsObjs {
-						allSubs = append(allSubs, subObj.Subdomain)
-					}
-
-					t.newAssetNotif(target.Name, domain, allSubs)
-				}
+				wg.Add(1)
+				go t.insertSubs(ctx, &wg, op, target, domain)
 			}
 		}
 	}
-	fmt.Println("[#] Subdomain enumeration job finished.")
+	wg.Wait()
 }
+
+func (t *task) resolveNewSubs(ctx context.Context) {
+	newSubs, err := fetchNewSubs(ctx, t.db)
+
+	if err != nil {
+		t.notify.ErrNotif("[!] Error while fetching new subs", err)
+		return
+	}
+
+	tempFile, err := os.CreateTemp("/tmp/", "new-subs")
+	if err != nil {
+		t.notify.ErrNotif("[!] Error creating temp file", err)
+		return
+	}
+
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	for _, sub := range newSubs {
+		tempFile.WriteString(fmt.Sprintf("%s\n", sub.Subdomain))
+	}
+
+	op, err := t.execute(ctx,
+		"/home/arcane/automation/resolve.sh",
+		tempFile.Name(),
+	)
+
+	if err != nil {
+		t.notify.ErrNotif("[!] Error while resolving new subdomains", err)
+		return
+	}
+
+	t.log("[~] Resolving new assets finished, Inserting...")
+
+	resolvedSubs := strings.Split(strings.TrimSpace(op), "\n")
+
+	if len(resolvedSubs) == 1 && resolvedSubs[0] == op {
+		t.log("[~] Didn't find any A record for new subs.")
+		return
+	}
+
+	_, err = t.db.Collection("subdomains").UpdateMany(ctx,
+		bson.D{{"subdomain", bson.D{{"$in", resolvedSubs}}}},
+		bson.D{{"$set", bson.D{{"dns", true}}}},
+	)
+	if err != nil {
+		t.notify.ErrNotif("[!] Error while updating subdomains", err)
+		return
+	}
+
+	t.notify.NewDnsNotif(resolvedSubs)
+}
+
+// func (t *task) dnsResolveAll(ctx context.Context) {
+// 	subs, err := fetchSubs(ctx, t.db)
+// 	if err != nil {
+// 		t.notify.ErrNotif("[!] Error while fetching targets", err)
+// 	}
+
+// 	for _, sub := range subs {
+// 		select {
+// 		case <-ctx.Done():
+// 			t.notify.ErrNotif("", fmt.Errorf("[!] Context deadline exceeds in subdomain enumeration job"))
+// 			return
+
+// 		default:
+// 			t.execute(ctx, "puredns")
+// 		}
+// 	}
+
+// }
