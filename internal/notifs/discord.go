@@ -1,4 +1,4 @@
-package jobs
+package notifs
 
 import (
 	"bytes"
@@ -39,7 +39,7 @@ type Discord struct {
 	Content string  `json:"content,omitempty"`
 }
 
-func NewInfo(webhook string) Provider {
+func NewDiscordInfo(webhook string) Provider {
 	d := &Discord{}
 	d.webhook = webhook
 	footer := Footer{Text: "Eagle Eye"}
@@ -73,14 +73,14 @@ func (d *Discord) SendMessage(jobName string, desc string, msgKey string, msgVal
 		go func() {
 			defer wg.Done()
 
-			newDis := NewInfo(d.webhook)
+			newDis := NewDiscordInfo(d.webhook)
 			newDis.SendMessage(jobName, desc, msgKey, firstHalf)
 		}()
 
 		go func() {
 			defer wg.Done()
 
-			newDis := NewInfo(d.webhook)
+			newDis := NewDiscordInfo(d.webhook)
 			newDis.SendMessage(jobName, desc, msgKey, secondHalf)
 		}()
 
@@ -102,11 +102,13 @@ func (d *Discord) sendEmbedReq() {
 	messageBytes, err := json.Marshal(d)
 	if err != nil {
 		fmt.Printf("[!] Error marshalling message: %v\n", err)
+		return
 	}
 
 	resp, err := http.Post(d.webhook, "application/json", bytes.NewBuffer(messageBytes))
 	if err != nil {
 		fmt.Printf("[!] Error sending request: %v\n", err)
+		return
 	}
 	defer resp.Body.Close()
 
