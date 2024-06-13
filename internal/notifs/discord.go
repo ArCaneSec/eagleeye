@@ -92,7 +92,6 @@ func (d *Discord) SendMessage(jobName string, desc string, msgKey string, msgVal
 	d.Embed[0].Description = fmt.Sprintf(":cyclone: **%s**", desc)
 
 	field := Field{fmt.Sprintf(":dart: **%s**", msgKey), fmt.Sprintf("```\n%s\n```", msgValue), false}
-	fmt.Println(msgValue)
 
 	d.Embed[0].Fields = []Field{field}
 	d.sendEmbedReq()

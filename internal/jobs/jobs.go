@@ -1,11 +1,16 @@
 package jobs
 
 import (
+	m "EagleEye/internal/models"
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
+
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -30,7 +35,7 @@ func (t *task) subdomainEnumerate(ctx context.Context) {
 				return
 
 			default:
-				fmt.Printf("[~] Current domain: %s\n", domain)
+				t.log(fmt.Sprintf("[~] Current domain: %s\n", domain))
 
 				op, err := t.execute(ctx, "subfinder", "-d", domain, "-all", "-silent")
 
@@ -49,6 +54,10 @@ func (t *task) subdomainEnumerate(ctx context.Context) {
 
 func (t *task) resolveNewSubs(ctx context.Context) {
 	newSubs, err := fetchNewSubs(ctx, t.db)
+	if len(newSubs) == 0 {
+		t.log("cyka blyat")
+		return
+	}
 
 	if err != nil {
 		t.notify.ErrNotif("[!] Error while fetching new subs", err)
@@ -78,18 +87,18 @@ func (t *task) resolveNewSubs(ctx context.Context) {
 		return
 	}
 
-	t.log("[~] Resolving new assets finished, Inserting...")
-
 	resolvedSubs := strings.Split(strings.TrimSpace(op), "\n")
 
 	if len(resolvedSubs) == 1 && resolvedSubs[0] == op {
 		t.log("[~] Didn't find any A record for new subs.")
 		return
+	} else {
+		t.log(fmt.Sprintf("[~] Found %d new A records.", len(resolvedSubs)))
 	}
 
 	_, err = t.db.Collection("subdomains").UpdateMany(ctx,
 		bson.D{{"subdomain", bson.D{{"$in", resolvedSubs}}}},
-		bson.D{{"$set", bson.D{{"dns", true}}}},
+		bson.D{{"$set", bson.D{{"dns", m.Dns{IsActive: true, Created: time.Now()}}}}},
 	)
 	if err != nil {
 		t.notify.ErrNotif("[!] Error while updating subdomains", err)
@@ -97,6 +106,63 @@ func (t *task) resolveNewSubs(ctx context.Context) {
 	}
 
 	t.notify.NewDnsNotif(resolvedSubs)
+}
+
+func (t *task) httpDiscovery(ctx context.Context) {
+	subsWithIP, err := fetchNewSubsWithIP(ctx, t.db)
+	if err != nil {
+		t.notify.ErrNotif("[!] Error while fetching new subs with ip", err)
+	}
+
+	tempFile, err := os.CreateTemp("/tmp/", "new-subs")
+	if err != nil {
+		t.notify.ErrNotif("[!] Error creating temp file", err)
+		return
+	}
+
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	subsMap := make(map[string]m.Subdomain, len(subsWithIP))
+
+	for _, sub := range subsWithIP {
+		tempFile.WriteString(fmt.Sprintf("%s\n", sub.Subdomain))
+		subsMap[sub.Subdomain] = sub
+	}
+
+	op, err := t.execute(ctx,
+		"/home/arcane/automation/resolve.sh",
+		tempFile.Name(),
+	)
+
+	if err != nil {
+		t.notify.ErrNotif("[!] Error service discovering new subdomains", err)
+		return
+	}
+
+	hosts := strings.Split(strings.TrimSpace(op), "\n")
+	rhPattern := regexp.MustCompile("(?:^https?:\\/\\/)(.*\\..*$)")
+
+	for _, host := range hosts {
+		var port int
+
+		switch {
+		case strings.HasPrefix(host, "http"):
+			port = 80
+		case strings.HasPrefix(host, "https"):
+			port = 443
+		default:
+			port, err := strconv.Atoi(strings.Split(host, ":")[1])
+			if err != nil {
+				t.notify.ErrNotif(fmt.Sprintf("[!] Couldn't find port of %s", host), err)
+			}
+		}
+		rawHost := rhPattern.FindStringSubmatch(host)[1]
+		if subObj, ok := subsMap[rawHost]; ok {
+			if subObj.Http != nil
+		}
+	}
+
 }
 
 // func (t *task) dnsResolveAll(ctx context.Context) {

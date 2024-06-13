@@ -13,18 +13,20 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-type taskFunc func(context.Context)
+type taskDetails struct {
+	name     string
+	taskFunc func(context.Context)
+}
 
 type job struct {
-	name      string
 	duration  time.Duration
 	cronJob   gocron.Job
-	task      taskFunc
+	task      taskDetails
 	active    bool
 	cDuration time.Duration
 	killer    context.CancelFunc
 	isRunning bool
-	// subTask   taskFunc
+	subTasks  []taskDetails
 }
 
 func (j *job) runTask() {
@@ -33,17 +35,23 @@ func (j *job) runTask() {
 
 	j.killer = cancel
 
-	log.Printf("[*] %s started...\n", j.name)
+	log.Printf("[*] %s started...\n", j.task.name)
 
 	j.isRunning = true
-	j.task(ctx)
+	j.task.taskFunc(ctx)
+
+	log.Printf("[#] %s finished.\n", j.task.name)
+
+	if len(j.subTasks) != 0 {
+		for _, task := range j.subTasks {
+			log.Printf("[#-*] %s started...\n", task.name)
+
+			task.taskFunc(ctx)
+			log.Printf("[#-#] %s finished.\n", task.name)
+
+		}
+	}
 	j.isRunning = false
-
-	log.Printf("[#] %s finished.\n", j.name)
-
-	// if j.subTask != nil {
-	// 	j.subTask(ctx)
-	// }
 }
 
 type task struct {
@@ -119,8 +127,25 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 	t := &task{db, notifs.NewNotif(os.Getenv("DISCORD_WEBHOOK"))}
 
 	jobs := []*job{
-		// {name: "Subdomain Enumeration",duration: 6 * time.Hour, task: t.subdomainEnumerate, cDuration: 1 * time.Hour},
-		{name: "Resolve New Subs", duration: 6 * time.Hour, task: t.resolveNewSubs, cDuration: 1 * time.Hour},
+		// {
+		// 	duration:  6 * time.Hour,
+		// 	task:      taskDetails{"Subdomain Enumeration", t.subdomainEnumerate},
+		// 	cDuration: 1 * time.Hour,
+		// 	subTasks:  []taskDetails{{"Resolve New Subs", t.resolveNewSubs}},
+		// },
+		// {
+		// 	duration:  6 * time.Hour,
+		// 	task:      taskDetails{"Resolve New Subs", t.resolveNewSubs},
+		// 	cDuration: 1 * time.Hour,
+		// },
+		{
+			duration: 6 * time.Hour,
+			task: taskDetails{
+				name:     "Service Discovery (news)",
+				taskFunc: t.httpDiscovery,
+			},
+			cDuration: 1 * time.Hour,
+		},
 	}
 
 	scheduler := &Scheduler{s, jobs}

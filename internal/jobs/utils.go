@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -38,10 +39,33 @@ func fetchSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
 
 func fetchNewSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
 	var subs []m.Subdomain
+	values := bson.D{{"subdomain", 1}, {"_id", 0}}
 
 	cursor, _ := db.Collection("subdomains").Find(
 		ctx,
-		bson.D{{"dns", nil}})
+		bson.D{{"dns", nil}}, options.Find().SetProjection(values))
+
+	if err := cursor.All(ctx, &subs); err != nil {
+		return []m.Subdomain{}, err
+	}
+
+	return subs, nil
+}
+
+func fetchNewSubsWithIP(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
+	var subs []m.Subdomain
+
+	cursor, _ := db.Collection("subdomains").Find(
+		ctx,
+		bson.D{{"$and",
+			bson.A{
+				bson.D{{"dns", bson.D{{"$ne", nil}}}},
+				bson.D{{"dns.created",
+					bson.D{{"$gt", primitive.NewDateTimeFromTime(
+						time.Now().Add(-24 * time.Hour),
+					)}}}},
+			}}},
+	)
 
 	if err := cursor.All(ctx, &subs); err != nil {
 		return []m.Subdomain{}, err

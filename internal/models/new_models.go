@@ -44,7 +44,20 @@ type Subdomain struct {
 	ID primitive.ObjectID `bson:"_id,omitempty"`
 	Target    primitive.ObjectID
 	Subdomain string
-	Dns       *bool
-	Http      *bool
+	Dns       *Dns
+	Http      []Http
 	Created   time.Time
+}
+
+type Dns struct {
+	IsActive bool `bson:"isActive"`
+	Created time.Time
+	Updated time.Time
+}
+
+type Http struct {
+	IsActive bool
+	Port int
+	Created time.Time
+	Updated time.Time
 }
