@@ -10,7 +10,7 @@ import (
 )
 
 type Provider interface {
-	SendMessage(jobName string, desc string, msgKey string, msgValue string)
+	SendMessage(title string, desc string, msgKey string, msgValue string)
 }
 
 type Field struct {
@@ -54,7 +54,7 @@ func NewDiscordInfo(webhook string) Provider {
 	return d
 }
 
-func (d *Discord) SendMessage(jobName string, desc string, msgKey string, msgValue string) {
+func (d *Discord) SendMessage(title string, desc string, msgKey string, msgValue string) {
 	if len(msgValue) >= 1024 {
 
 		half := len(msgValue) / 2
@@ -74,25 +74,24 @@ func (d *Discord) SendMessage(jobName string, desc string, msgKey string, msgVal
 			defer wg.Done()
 
 			newDis := NewDiscordInfo(d.webhook)
-			newDis.SendMessage(jobName, desc, msgKey, firstHalf)
+			newDis.SendMessage(title, desc, msgKey, firstHalf)
 		}()
 
 		go func() {
 			defer wg.Done()
 
 			newDis := NewDiscordInfo(d.webhook)
-			newDis.SendMessage(jobName, desc, msgKey, secondHalf)
+			newDis.SendMessage(title, desc, msgKey, secondHalf)
 		}()
 
 		wg.Wait()
 		return
 	}
 
-	d.Embed[0].Title = fmt.Sprintf(":telescope: %s", jobName)
+	d.Embed[0].Title = fmt.Sprintf(":telescope: %s", title)
 	d.Embed[0].Description = fmt.Sprintf(":cyclone: **%s**", desc)
 
 	field := Field{fmt.Sprintf(":dart: **%s**", msgKey), fmt.Sprintf("```\n%s\n```", msgValue), false}
-	fmt.Println(msgValue)
 
 	d.Embed[0].Fields = []Field{field}
 	d.sendEmbedReq()
