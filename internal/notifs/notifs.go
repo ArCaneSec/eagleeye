@@ -9,6 +9,7 @@ type Notify interface {
 	NewAssetNotif(target string, domain string, assets []string)
 	ErrNotif(details string, err error)
 	NewDnsNotif(assets []string)
+	NewHttpNotif(hosts []string)
 }
 
 type Notif struct {
@@ -32,7 +33,7 @@ func (n Notif) NewAssetNotif(target string, domain string, assets []string) {
 	// strAssets := strings.Join(l, "\n")
 	strAssets := strings.Join(assets, "\n")
 
-	n.provider.SendMessage("Subdomain Enumeration",
+	n.provider.SendMessage("New Subdomains",
 		fmt.Sprintf("%d new subdomains found for %s", len(assets), target),
 		fmt.Sprintf("domain: %s", domain),
 		strAssets,
@@ -47,9 +48,19 @@ func (n Notif) ErrNotif(detail string, err error) {
 func (n Notif) NewDnsNotif(assets []string) {
 	strAssets := strings.Join(assets, "\n")
 
-	n.provider.SendMessage("Resolve New Subs",
+	n.provider.SendMessage("New A Records",
 		fmt.Sprintf("%d new A records found.", len(assets)),
 		"Assets:",
+		strAssets,
+	)
+}
+
+func (n Notif) NewHttpNotif(hosts []string) {
+	strAssets := strings.Join(hosts, "\n")
+
+	n.provider.SendMessage("New Http Services",
+		fmt.Sprintf("%d new http services found.", len(hosts)),
+		"Hosts:",
 		strAssets,
 	)
 }

@@ -127,25 +127,27 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 	t := &task{db, notifs.NewNotif(os.Getenv("DISCORD_WEBHOOK"))}
 
 	jobs := []*job{
-		// {
-		// 	duration:  6 * time.Hour,
-		// 	task:      taskDetails{"Subdomain Enumeration", t.subdomainEnumerate},
-		// 	cDuration: 1 * time.Hour,
-		// 	subTasks:  []taskDetails{{"Resolve New Subs", t.resolveNewSubs}},
-		// },
+		{
+			duration:  6 * time.Hour,
+			task:      taskDetails{"Subdomain Enumeration", t.subdomainEnumerate},
+			cDuration: 1 * time.Hour,
+			subTasks: []taskDetails{
+				{"Resolve New Subs", t.resolveNewSubs},
+				{"Service Discovery (news)", t.httpDiscovery}},
+		},
 		// {
 		// 	duration:  6 * time.Hour,
 		// 	task:      taskDetails{"Resolve New Subs", t.resolveNewSubs},
 		// 	cDuration: 1 * time.Hour,
 		// },
-		{
-			duration: 6 * time.Hour,
-			task: taskDetails{
-				name:     "Service Discovery (news)",
-				taskFunc: t.httpDiscovery,
-			},
-			cDuration: 1 * time.Hour,
-		},
+		// {
+		// 	duration: 6 * time.Hour,
+		// 	task: taskDetails{
+		// 		name:     "Service Discovery (news)",
+		// 		taskFunc: t.httpDiscovery,
+		// 	},
+		// 	cDuration: 1 * time.Hour,
+		// },
 	}
 
 	scheduler := &Scheduler{s, jobs}

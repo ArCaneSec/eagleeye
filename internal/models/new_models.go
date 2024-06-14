@@ -56,7 +56,7 @@ type Dns struct {
 }
 
 type Http struct {
-	IsActive bool
+	IsActive bool `bson:"isActive"`
 	Port int
 	Created time.Time
 	Updated time.Time

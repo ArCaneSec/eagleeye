@@ -99,7 +99,11 @@ func (t *task) insertSubs(ctx context.Context, wg *sync.WaitGroup, op string, ta
 		return
 	}
 
-	t.log(fmt.Sprintf("[+] Found %d new subdomains.\n", len(val.InsertedIDs)))
+	t.log(
+		fmt.Sprintf("[+] Found %d new subdomains for %s.",
+			len(val.InsertedIDs),
+			target.Name),
+	)
 
 	if len(val.InsertedIDs) != 0 {
 		filter := bson.D{{"_id", bson.D{{"$in", val.InsertedIDs}}}}
