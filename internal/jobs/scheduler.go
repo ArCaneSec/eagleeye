@@ -148,6 +148,12 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 		// 	},
 		// 	cDuration: 1 * time.Hour,
 		// },
+		{
+			duration:  48 * time.Hour,
+			task:      taskDetails{"Dns Resolve", t.dnsResolveAll},
+			cDuration: 1 * time.Hour,
+			subTasks: []taskDetails{},
+		},
 	}
 
 	scheduler := &Scheduler{s, jobs}
