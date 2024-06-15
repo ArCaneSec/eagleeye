@@ -17,10 +17,17 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+
+func (t *task) checkErr(err error){
+	if err != nil {
+		t.notify.ErrNotif("", err)
+	}
+}
+
 func (t *task) subdomainEnumerate(ctx context.Context) {
 	targets, err := fetchTargets(ctx, t.db)
 	if err != nil {
-		t.notify.ErrNotif("[!] Error while fetching targets", err)
+		t.notify.ErrNotif("", err)
 		return
 	}
 
@@ -61,29 +68,16 @@ func (t *task) resolveNewSubs(ctx context.Context) {
 		return
 	}
 
-	if err != nil {
-		t.notify.ErrNotif("[!] Error while fetching new subs", err)
-		return
-	}
+	t.checkErr(err)
 
-	tempFile, err := os.CreateTemp("/tmp/", "new-subs")
-	if err != nil {
-		t.notify.ErrNotif("[!] Error creating temp file", err)
-		return
-	}
+	tempFile, subsMap, err := WriteToTempFile(newSubs)
+	t.checkErr(err)
+	defer os.Remove(tempFile)
 
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
-	subsMap := make(map[string]m.Subdomain, len(newSubs))
-	for _, sub := range newSubs {
-		tempFile.WriteString(fmt.Sprintf("%s\n", sub.Subdomain))
-		subsMap[sub.Subdomain] = sub
-	}
 
 	op, err := t.execute(ctx,
 		"/home/arcane/automation/resolve.sh",
-		tempFile.Name(),
+		tempFile,
 	)
 
 	if err != nil {
@@ -135,30 +129,15 @@ func (t *task) resolveNewSubs(ctx context.Context) {
 
 func (t *task) httpDiscovery(ctx context.Context) {
 	subsWithIP, err := fetchNewSubsWithIP(ctx, t.db)
-	if err != nil {
-		t.notify.ErrNotif("[!] Error while fetching new subs with ip", err)
-		return
-	}
+	t.checkErr(err)
 
-	tempFile, err := os.CreateTemp("/tmp/", "new-subs")
-	if err != nil {
-		t.notify.ErrNotif("[!] Error creating temp file", err)
-		return
-	}
-
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
-	subsMap := make(map[string]m.Subdomain, len(subsWithIP))
-
-	for _, sub := range subsWithIP {
-		tempFile.WriteString(fmt.Sprintf("%s\n", sub.Subdomain))
-		subsMap[sub.Subdomain] = sub
-	}
+	tempFile, subsMap, err := WriteToTempFile(subsWithIP)
+	t.checkErr(err)
+	defer os.Remove(tempFile)
 
 	op, err := t.execute(ctx,
 		"/home/arcane/automation/discovery.sh",
-		tempFile.Name(),
+		tempFile,
 	)
 
 	if err != nil {
@@ -225,28 +204,14 @@ func (t *task) httpDiscovery(ctx context.Context) {
 
 func (t *task) dnsResolveAll(ctx context.Context) {
 	subs, err := fetchAllSubs(ctx, t.db)
-	if err != nil {
-		t.notify.ErrNotif("[!] Error while fetching targets", err)
-		return
-	}
+	t.checkErr(err)
 
-	tempFile, err := os.CreateTemp("/tmp/", "new-subs")
-	if err != nil {
-		t.notify.ErrNotif("[!] Error creating temp file", err)
-		return
-	}
+	tempFile, subsMap, err := WriteToTempFile(subs)
+	t.checkErr(err)
 
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
+	defer os.Remove(tempFile)
 
-	subsMap := make(map[string]m.Subdomain, len(subs))
-
-	for _, sub := range subs {
-		tempFile.WriteString(fmt.Sprintf("%s\n", sub.Subdomain))
-		subsMap[sub.Subdomain] = sub
-	}
-
-	op, err := t.execute(ctx, "/home/arcane/automation/resolve.sh", tempFile.Name())
+	op, err := t.execute(ctx, "/home/arcane/automation/resolve.sh", tempFile)
 	if err != nil {
 		t.notify.ErrNotif("[!] Error while resolving all subdomains", err)
 		return
@@ -308,28 +273,4 @@ func (t *task) dnsResolveAll(ctx context.Context) {
 	t.notify.NewDnsNotif(newResolvedSubs)
 }
 
-// func (t *task) httpDiscoveryAll(ctx context.Context){
-// httpFound := false
-// for _, http := range subObj.Http {
 
-// 	if port == http.Port {
-// 		httpFound = true
-// 		if !http.IsActive {
-// 			http.IsActive = true
-// 			http.Updated = now
-// 		}
-// 		break
-// 	}
-
-// 	if port != http.Port {
-// 		http.Updated = now
-// 		http.IsActive = false
-// 	}
-
-// 	subObj.Http = append(subObj.Http, m.Http{
-// 		IsActive: true,
-// 		Port:     port,
-// 		Created:  now,
-// 		Updated:  now,
-// 	})
-// }}

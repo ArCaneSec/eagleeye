@@ -128,8 +128,11 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 
 	jobs := []*job{
 		{
-			duration:  6 * time.Hour,
-			task:      taskDetails{"Subdomain Enumeration", t.subdomainEnumerate},
+			duration: 6 * time.Hour,
+			task: taskDetails{
+				name:     "Subdomain Enumeration",
+				taskFunc: t.subdomainEnumerate,
+			},
 			cDuration: 1 * time.Hour,
 			subTasks: []taskDetails{
 				{"Resolve New Subs", t.resolveNewSubs},
@@ -152,7 +155,7 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 			duration:  48 * time.Hour,
 			task:      taskDetails{"Dns Resolve", t.dnsResolveAll},
 			cDuration: 1 * time.Hour,
-			subTasks: []taskDetails{},
+			subTasks:  []taskDetails{},
 		},
 	}
 

@@ -4,6 +4,7 @@ import (
 	m "EagleEye/internal/models"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ func fetchTargets(ctx context.Context, db *mongo.Database) ([]m.Target, error) {
 	cursor, _ := db.Collection("targets").Find(ctx, bson.D{{}})
 
 	if err := cursor.All(ctx, &targets); err != nil {
-		return []m.Target{}, err
+		return []m.Target{}, fmt.Errorf("[!] Error while fetching targets: %w", err)
 	}
 
 	return targets, nil
@@ -30,7 +31,7 @@ func fetchAllSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error
 
 	cursor, _ := db.Collection("subdomains").Find(ctx, bson.D{{}})
 	if err := cursor.All(ctx, &subs); err != nil {
-		return []m.Subdomain{}, err
+		return []m.Subdomain{}, fmt.Errorf("[!] Error while fetching targets: %w", err)
 	}
 
 	return subs, nil
@@ -45,7 +46,7 @@ func fetchNewSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error
 		bson.D{{"dns", nil}}) //, options.Find().SetProjection(values)
 
 	if err := cursor.All(ctx, &subs); err != nil {
-		return []m.Subdomain{}, err
+		return []m.Subdomain{}, fmt.Errorf("[!] Error while fetching new subs: %w", err)
 	}
 
 	return subs, nil
@@ -68,7 +69,7 @@ func fetchNewSubsWithIP(ctx context.Context, db *mongo.Database) ([]m.Subdomain,
 	)
 
 	if err := cursor.All(ctx, &subs); err != nil {
-		return []m.Subdomain{}, err
+		return []m.Subdomain{}, fmt.Errorf("[!] Error while fetching new subs with ip: %w", err)
 	}
 
 	return subs, nil
@@ -120,4 +121,22 @@ func (t *task) insertSubs(ctx context.Context, wg *sync.WaitGroup, op string, ta
 
 		t.notify.NewAssetNotif(target.Name, domain, allSubs)
 	}
+}
+
+func WriteToTempFile(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
+	tempFile, err := os.CreateTemp("/tmp/", "subs")
+	if err != nil {
+		return "", nil, fmt.Errorf("[!] Error creating temp file: %w", err)
+	}
+
+	subsMap := make(map[string]*m.Subdomain, len(subs))
+
+	for _, sub := range subs {
+		tempFile.WriteString(fmt.Sprintf("%s\n", sub.Subdomain))
+		subsMap[sub.Subdomain] = &sub
+	}
+
+	tempFile.Close()
+
+	return tempFile.Name(), subsMap, nil
 }
