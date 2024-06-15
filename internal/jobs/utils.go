@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -26,7 +25,7 @@ func fetchTargets(ctx context.Context, db *mongo.Database) ([]m.Target, error) {
 	return targets, nil
 }
 
-func fetchSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
+func fetchAllSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
 	var subs []m.Subdomain
 
 	cursor, _ := db.Collection("subdomains").Find(ctx, bson.D{{}})
@@ -39,11 +38,11 @@ func fetchSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
 
 func fetchNewSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
 	var subs []m.Subdomain
-	values := bson.D{{"subdomain", 1}, {"_id", 0}}
+	// values := bson.D{{"subdomain", 1}, {"_id", 0}}
 
 	cursor, _ := db.Collection("subdomains").Find(
 		ctx,
-		bson.D{{"dns", nil}}, options.Find().SetProjection(values))
+		bson.D{{"dns", nil}}) //, options.Find().SetProjection(values)
 
 	if err := cursor.All(ctx, &subs); err != nil {
 		return []m.Subdomain{}, err
@@ -60,10 +59,11 @@ func fetchNewSubsWithIP(ctx context.Context, db *mongo.Database) ([]m.Subdomain,
 		bson.D{{"$and",
 			bson.A{
 				bson.D{{"dns", bson.D{{"$ne", nil}}}},
-				bson.D{{"dns.created",
-					bson.D{{"$gt", primitive.NewDateTimeFromTime(
-						time.Now().Add(-24 * time.Hour),
-					)}}}},
+				bson.D{{"http", bson.D{{"$eq", nil}}}},
+				// bson.D{{"dns.created",
+				// 	bson.D{{"$gt", primitive.NewDateTimeFromTime(
+				// 		time.Now().Add(-24 * time.Hour),
+				// 	)}}}},
 			}}},
 	)
 
@@ -81,10 +81,9 @@ func (t *task) insertSubs(ctx context.Context, wg *sync.WaitGroup, op string, ta
 	cursor := t.db.Collection("subdomains")
 	now := time.Now()
 
-	subs := strings.Split(op, "\n")
+	subs := strings.Split(strings.TrimSpace(op), "\n")
 
 	for _, sub := range subs {
-		sub = strings.TrimSpace(sub)
 		if sub == "" {
 			continue
 		}
