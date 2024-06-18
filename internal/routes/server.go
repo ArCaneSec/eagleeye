@@ -6,29 +6,35 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"github.com/joho/godotenv"
 )
 
 type Server struct {
-	address   string
-	router    *chi.Mux
 	db        *mongo.Database
-	schedular *jobs.Scheduler
+	scheduler *jobs.Scheduler
 }
 
 func main() {
 	godotenv.Load("../../.env")
 	r := chi.NewRouter()
 
-	s := &Server{address: ":5000", router: r, db: initDb()}
-	s.schedular = jobs.ScheduleJobs(s.db)
+	var wg sync.WaitGroup
+
+	httpServer := http.Server{Addr: "127.0.0.1:5000", Handler: r}
+
+	s := &Server{db: initDb()}
+	s.scheduler = jobs.ScheduleJobs(s.db, &wg)
 
 	r.Use(middleware.Logger)
 
@@ -36,9 +42,40 @@ func main() {
 	r.Put("/target/", s.editTarget)
 	r.Post("/job/{id:[0-9]{1,3}}", s.activeJob)
 	r.Delete("/job/{id:[0-9]{1,3}}", s.deactiveJob)
+	r.Delete("/job/", s.deactiveAll)
 
-	log.Printf("Listening on %s", s.address)
-	http.ListenAndServe(s.address, s.router)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	var interruptCount int
+
+	go func() {
+		for {
+			<-sig
+			interruptCount++
+			if interruptCount == 1 {
+				go func() {
+					err := httpServer.Shutdown(context.Background())
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					s.scheduler.Shutdown()
+
+				}()
+			} else {
+				log.Fatal("[!] Received second signal, terminating immediately")
+			}
+		}
+	}()
+
+	log.Printf("Listening on %s", httpServer.Addr)
+
+	if err := httpServer.ListenAndServe(); err != nil {
+		log.Println("[~] Http server closed, preparing graceful shutdown...")
+		wg.Wait()
+	}
+
+	log.Println("[#] Eagle's going to sleep, cya!")
 }
 
 func initDb() *mongo.Database {

@@ -80,8 +80,8 @@ func (s *Server) activeJob(w http.ResponseWriter, r *http.Request) {
 	jobId := chi.URLParam(r, "id")
 	intJobId, _ := strconv.Atoi(jobId)
 
-	err := s.schedular.ActiveJob(intJobId)
-	if err != nil{
+	err := s.scheduler.ActiveJob(intJobId)
+	if err != nil {
 		s.jsonEncode(w, http.StatusBadRequest, err)
 		return
 	}
@@ -92,11 +92,21 @@ func (s *Server) deactiveJob(w http.ResponseWriter, r *http.Request) {
 	jobId := chi.URLParam(r, "id")
 	intJobId, _ := strconv.Atoi(jobId)
 
-	err := s.schedular.DeactiveJob(intJobId)
+	err := s.scheduler.DeactiveJob(intJobId)
 
-	if err != nil{
+	if err != nil {
 		s.jsonEncode(w, http.StatusBadRequest, err)
 		return
 	}
 	s.jsonEncode(w, http.StatusAccepted, "deactivated")
+}
+
+func (s *Server) deactiveAll(w http.ResponseWriter, r *http.Request) {
+	err := s.scheduler.Shutdown()
+	if err != nil {
+		s.jsonEncode(w, http.StatusBadRequest, err)
+		return
+	}
+
+	s.jsonEncode(w, http.StatusOK, "all jobs deativated gracefully.")
 }

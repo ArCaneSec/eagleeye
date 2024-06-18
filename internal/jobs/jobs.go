@@ -17,21 +17,18 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-
-func (t *task) checkErr(err error){
+func (t *task) checkErr(err error) {
 	if err != nil {
 		t.notify.ErrNotif("", err)
 	}
 }
 
-func (t *task) subdomainEnumerate(ctx context.Context) {
+func (t *task) subdomainEnumerate(ctx context.Context, wg *sync.WaitGroup) {
 	targets, err := fetchTargets(ctx, t.db)
 	if err != nil {
 		t.notify.ErrNotif("", err)
 		return
 	}
-
-	var wg sync.WaitGroup
 
 	for _, target := range targets {
 
@@ -54,14 +51,16 @@ func (t *task) subdomainEnumerate(ctx context.Context) {
 				}
 
 				wg.Add(1)
-				go t.insertSubs(ctx, &wg, op, target, domain)
+				go func() {
+					defer wg.Done()
+					t.insertSubs(ctx, op, target, domain)
+				}()
 			}
 		}
 	}
-	wg.Wait()
 }
 
-func (t *task) resolveNewSubs(ctx context.Context) {
+func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 	newSubs, err := fetchNewSubs(ctx, t.db)
 	if len(newSubs) == 0 {
 		t.log("[~] Didn't find any new sub without A record.")
@@ -73,7 +72,6 @@ func (t *task) resolveNewSubs(ctx context.Context) {
 	tempFile, subsMap, err := WriteToTempFile(newSubs)
 	t.checkErr(err)
 	defer os.Remove(tempFile)
-
 
 	op, err := t.execute(ctx,
 		"/home/arcane/automation/resolve.sh",
@@ -127,7 +125,7 @@ func (t *task) resolveNewSubs(ctx context.Context) {
 	t.notify.NewDnsNotif(resolvedSubs)
 }
 
-func (t *task) httpDiscovery(ctx context.Context) {
+func (t *task) httpDiscovery(ctx context.Context, wg *sync.WaitGroup) {
 	subsWithIP, err := fetchNewSubsWithIP(ctx, t.db)
 	t.checkErr(err)
 
@@ -202,7 +200,7 @@ func (t *task) httpDiscovery(ctx context.Context) {
 	t.notify.NewHttpNotif(hosts)
 }
 
-func (t *task) dnsResolveAll(ctx context.Context) {
+func (t *task) dnsResolveAll(ctx context.Context, wg *sync.WaitGroup) {
 	subs, err := fetchAllSubs(ctx, t.db)
 	t.checkErr(err)
 
@@ -273,4 +271,9 @@ func (t *task) dnsResolveAll(ctx context.Context) {
 	t.notify.NewDnsNotif(newResolvedSubs)
 }
 
-
+func (t *task) testJob(ctx context.Context, wg *sync.WaitGroup) {
+	for i := range 10 {
+		fmt.Println(i)
+		time.Sleep(time.Second)
+	}
+}

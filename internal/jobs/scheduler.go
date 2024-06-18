@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
@@ -15,7 +16,7 @@ import (
 
 type taskDetails struct {
 	name     string
-	taskFunc func(context.Context)
+	taskFunc func(context.Context, *sync.WaitGroup)
 }
 
 type job struct {
@@ -27,6 +28,7 @@ type job struct {
 	killer    context.CancelFunc
 	isRunning bool
 	subTasks  []taskDetails
+	wg        *sync.WaitGroup
 }
 
 func (j *job) runTask() {
@@ -37,18 +39,22 @@ func (j *job) runTask() {
 
 	log.Printf("[*] %s started...\n", j.task.name)
 
+	j.wg.Add(1)
 	j.isRunning = true
-	j.task.taskFunc(ctx)
+	j.task.taskFunc(ctx, j.wg)
+	j.wg.Done()
 
 	log.Printf("[#] %s finished.\n", j.task.name)
 
 	if len(j.subTasks) != 0 {
 		for _, task := range j.subTasks {
 			log.Printf("[#-*] %s started...\n", task.name)
+			
+			j.wg.Add(1)
+			task.taskFunc(ctx, j.wg)
+			j.wg.Done()
 
-			task.taskFunc(ctx)
 			log.Printf("[#-#] %s finished.\n", task.name)
-
 		}
 	}
 	j.isRunning = false
@@ -122,8 +128,23 @@ func (s *Scheduler) ActiveJob(id int) error {
 	return nil
 }
 
-func ScheduleJobs(db *mongo.Database) *Scheduler {
-	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(3, gocron.LimitModeWait))
+func (s *Scheduler) Shutdown() error {
+	for _, job := range s.jobs {
+		if !job.active {
+			continue
+		}
+
+		err := s.core.RemoveJob(job.cronJob.ID())
+		if err != nil {
+			return fmt.Errorf("error while shutting scheduler down: %w", err)
+		}
+		job.active = false
+	}
+	return nil
+}
+
+func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
+	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(1, gocron.LimitModeWait))
 	t := &task{db, notifs.NewNotif(os.Getenv("DISCORD_WEBHOOK"))}
 
 	jobs := []*job{
@@ -151,12 +172,19 @@ func ScheduleJobs(db *mongo.Database) *Scheduler {
 		// 	},
 		// 	cDuration: 1 * time.Hour,
 		// },
-		{
-			duration:  48 * time.Hour,
-			task:      taskDetails{"Dns Resolve", t.dnsResolveAll},
-			cDuration: 1 * time.Hour,
-			subTasks:  []taskDetails{},
-		},
+		// {
+		// 	duration:  48 * time.Hour,
+		// 	task:      taskDetails{"Dns Resolve", t.dnsResolveAll},
+		// 	cDuration: 1 * time.Hour,
+		// 	subTasks:  []taskDetails{},
+		// },
+		// {
+		// 	duration:  1 * time.Second,
+		// 	task:      taskDetails{"Test Job", t.testJob},
+		// 	cDuration: 1 * time.Hour,
+		// 	subTasks:  []taskDetails{},
+		// 	wg:        wg,
+		// },
 	}
 
 	scheduler := &Scheduler{s, jobs}
