@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -75,9 +74,7 @@ func fetchNewSubsWithIP(ctx context.Context, db *mongo.Database) ([]m.Subdomain,
 	return subs, nil
 }
 
-func (t *task) insertSubs(ctx context.Context, wg *sync.WaitGroup, op string, target m.Target, domain string) {
-	defer wg.Done()
-
+func (t *task) insertSubs(ctx context.Context, op string, target m.Target, domain string) {
 	var subdomains []interface{}
 	cursor := t.db.Collection("subdomains")
 	now := time.Now()
