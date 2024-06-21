@@ -28,10 +28,9 @@ type job struct {
 	killer    context.CancelFunc
 	isRunning bool
 	subTasks  []taskDetails
-	wg        *sync.WaitGroup
 }
 
-func (j *job) runTask() {
+func (j *job) runTask(wg *sync.WaitGroup) {
 	ctx, cancel := context.WithTimeout(context.Background(), j.cDuration)
 	defer cancel()
 
@@ -39,10 +38,10 @@ func (j *job) runTask() {
 
 	log.Printf("[*] %s started...\n", j.task.name)
 
-	j.wg.Add(1)
+	wg.Add(1)
 	j.isRunning = true
-	j.task.taskFunc(ctx, j.wg)
-	j.wg.Done()
+	j.task.taskFunc(ctx, wg)
+	wg.Done()
 
 	log.Printf("[#] %s finished.\n", j.task.name)
 
@@ -50,9 +49,9 @@ func (j *job) runTask() {
 		for _, task := range j.subTasks {
 			log.Printf("[#-*] %s started...\n", task.name)
 			
-			j.wg.Add(1)
-			task.taskFunc(ctx, j.wg)
-			j.wg.Done()
+			wg.Add(1)
+			task.taskFunc(ctx, wg)
+			wg.Done()
 
 			log.Printf("[#-#] %s finished.\n", task.name)
 		}
@@ -84,6 +83,7 @@ func (t *task) execute(ctx context.Context, command string, args ...string) (str
 type Scheduler struct {
 	core gocron.Scheduler
 	jobs []*job
+	wg *sync.WaitGroup
 }
 
 func (s *Scheduler) DeactiveJob(id int) error {
@@ -118,7 +118,7 @@ func (s *Scheduler) ActiveJob(id int) error {
 
 	j, _ := s.core.NewJob(
 		gocron.DurationJob(job.duration),
-		gocron.NewTask(job.runTask),
+		gocron.NewTask(job.runTask, s.wg),
 		gocron.WithStartAt(gocron.WithStartImmediately()),
 	)
 
@@ -183,11 +183,10 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 		// 	task:      taskDetails{"Test Job", t.testJob},
 		// 	cDuration: 1 * time.Hour,
 		// 	subTasks:  []taskDetails{},
-		// 	wg:        wg,
 		// },
 	}
 
-	scheduler := &Scheduler{s, jobs}
+	scheduler := &Scheduler{s, jobs, wg}
 
 	s.Start()
 	for id := range scheduler.jobs {

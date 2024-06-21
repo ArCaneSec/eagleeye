@@ -69,7 +69,7 @@ func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 
 	t.checkErr(err)
 
-	tempFile, subsMap, err := WriteToTempFile(newSubs)
+	tempFile, subsMap, err := tempFileNMap(newSubs)
 	t.checkErr(err)
 	defer os.Remove(tempFile)
 
@@ -83,53 +83,56 @@ func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 		return
 	}
 
-	resolvedSubs := strings.Split(strings.TrimSpace(op), "\n")
+	wg.Add(1)
+	go func() {
+		resolvedSubs := strings.Split(strings.TrimSpace(op), "\n")
 
-	if len(resolvedSubs) == 1 && resolvedSubs[0] == op {
-		t.log("[~] Didn't find any A record for new subs.")
-		return
-	} else {
-		t.log(fmt.Sprintf("[~] Found %d new A records.", len(resolvedSubs)))
-	}
+		if len(resolvedSubs) == 1 && resolvedSubs[0] == op {
+			t.log("[~] Didn't find any A record for new subs.")
+			return
+		} else {
+			t.log(fmt.Sprintf("[~] Found %d new A records.", len(resolvedSubs)))
+		}
 
-	now := time.Now()
+		now := time.Now()
 
-	var updates []mongo.WriteModel
-	for _, resolvedSub := range resolvedSubs {
-		subObj := subsMap[resolvedSub]
-		updates = append(updates,
-			mongo.NewUpdateOneModel().
-				SetFilter(bson.M{"_id": subObj.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"dns": &m.Dns{IsActive: true, Created: now, Updated: now}}}),
-		)
+		var updates []mongo.WriteModel
+		for _, resolvedSub := range resolvedSubs {
+			subObj := subsMap[resolvedSub]
+			updates = append(updates,
+				mongo.NewUpdateOneModel().
+					SetFilter(bson.M{"_id": subObj.ID}).
+					SetUpdate(bson.M{"$set": bson.M{"dns": &m.Dns{IsActive: true, Created: now, Updated: now}}}),
+			)
 
-		delete(subsMap, resolvedSub)
-	}
+			delete(subsMap, resolvedSub)
+		}
 
-	for _, notResolvedSub := range subsMap {
-		updates = append(updates,
-			mongo.NewUpdateOneModel().
-				SetFilter(bson.M{"_id": notResolvedSub.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"dns": &m.Dns{IsActive: false, Created: now, Updated: now}}}),
-		)
-	}
+		for _, notResolvedSub := range subsMap {
+			updates = append(updates,
+				mongo.NewUpdateOneModel().
+					SetFilter(bson.M{"_id": notResolvedSub.ID}).
+					SetUpdate(bson.M{"$set": bson.M{"dns": &m.Dns{IsActive: false, Created: now, Updated: now}}}),
+			)
+		}
 
-	opts := options.BulkWrite().SetOrdered(true)
-	_, err = t.db.Collection("subdomains").BulkWrite(ctx, updates, opts)
+		opts := options.BulkWrite().SetOrdered(true)
+		_, err = t.db.Collection("subdomains").BulkWrite(ctx, updates, opts)
 
-	if err != nil {
-		t.notify.ErrNotif("[!] Error while updating subdomains", err)
-		return
-	}
+		if err != nil {
+			t.notify.ErrNotif("[!] Error while updating subdomains", err)
+			return
+		}
 
-	t.notify.NewDnsNotif(resolvedSubs)
+		t.notify.NewDnsNotif(resolvedSubs)
+	}()
 }
 
 func (t *task) httpDiscovery(ctx context.Context, wg *sync.WaitGroup) {
 	subsWithIP, err := fetchNewSubsWithIP(ctx, t.db)
 	t.checkErr(err)
 
-	tempFile, subsMap, err := WriteToTempFile(subsWithIP)
+	tempFile, subsMap, err := tempFileNMap(subsWithIP)
 	t.checkErr(err)
 	defer os.Remove(tempFile)
 
@@ -204,7 +207,7 @@ func (t *task) dnsResolveAll(ctx context.Context, wg *sync.WaitGroup) {
 	subs, err := fetchAllSubs(ctx, t.db)
 	t.checkErr(err)
 
-	tempFile, subsMap, err := WriteToTempFile(subs)
+	tempFile, subsMap, err := tempFileNMap(subs)
 	t.checkErr(err)
 
 	defer os.Remove(tempFile)

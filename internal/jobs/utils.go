@@ -120,7 +120,7 @@ func (t *task) insertSubs(ctx context.Context, op string, target m.Target, domai
 	}
 }
 
-func WriteToTempFile(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
+func tempFileNMap(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
 	tempFile, err := os.CreateTemp("/tmp/", "subs")
 	if err != nil {
 		return "", nil, fmt.Errorf("[!] Error creating temp file: %w", err)
