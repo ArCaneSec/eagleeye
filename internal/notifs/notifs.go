@@ -7,7 +7,7 @@ import (
 
 type Notify interface {
 	NewAssetNotif(target string, domain string, assets []string)
-	ErrNotif(details string, err error)
+	ErrNotif(err error)
 	NewDnsNotif(assets []string)
 	NewHttpNotif(hosts []string)
 }
@@ -40,8 +40,7 @@ func (n Notif) NewAssetNotif(target string, domain string, assets []string) {
 	)
 }
 
-func (n Notif) ErrNotif(detail string, err error) {
-	fmt.Println(detail)
+func (n Notif) ErrNotif(err error) {
 	fmt.Println(err)
 }
 

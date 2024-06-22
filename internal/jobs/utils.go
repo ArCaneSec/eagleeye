@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,7 +93,7 @@ func (t *task) insertSubs(ctx context.Context, op string, target m.Target, domai
 
 	val, err := t.db.Collection("subdomains").InsertMany(ctx, subdomains, breakAfterFirstFail)
 	if err != nil && !mongo.IsDuplicateKeyError(err) {
-		t.notify.ErrNotif("[!] Error while inserting subdomains to database", err)
+		t.notify.ErrNotif(fmt.Errorf("[!] Error while inserting subdomains to database: %w", err))
 		return
 	}
 
@@ -136,4 +137,23 @@ func tempFileNMap(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
 	tempFile.Close()
 
 	return tempFile.Name(), subsMap, nil
+}
+
+func getPort(host string) (int, error) {
+	var port int
+	var err error
+
+	switch {
+	case strings.HasPrefix(host, "http:"):
+		port = 80
+	case strings.HasPrefix(host, "https:"):
+		port = 443
+	default:
+		port, err = strconv.Atoi(strings.Split(host, ":")[1])
+		if err != nil {
+			return 0, fmt.Errorf("[!] Couldn't find port of %s: %w", host, err)
+		}
+	}
+
+	return port, err
 }

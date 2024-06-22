@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strconv"
 
 	"os"
 	"strings"
@@ -17,16 +16,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func (t *task) checkErr(err error) {
-	if err != nil {
-		t.notify.ErrNotif("", err)
-	}
-}
-
 func (t *task) subdomainEnumerate(ctx context.Context, wg *sync.WaitGroup) {
 	targets, err := fetchTargets(ctx, t.db)
 	if err != nil {
-		t.notify.ErrNotif("", err)
+		t.notify.ErrNotif(err)
 		return
 	}
 
@@ -35,7 +28,7 @@ func (t *task) subdomainEnumerate(ctx context.Context, wg *sync.WaitGroup) {
 		for _, domain := range target.Scope {
 			select {
 			case <-ctx.Done():
-				t.notify.ErrNotif("",
+				t.notify.ErrNotif(
 					fmt.Errorf("[!] Context deadline exceeds in subdomain enumeration job"),
 				)
 				return
@@ -46,7 +39,7 @@ func (t *task) subdomainEnumerate(ctx context.Context, wg *sync.WaitGroup) {
 				op, err := t.execute(ctx, "subfinder", "-d", domain, "-all", "-silent")
 
 				if err != nil {
-					t.notify.ErrNotif(op, err)
+					t.notify.ErrNotif(fmt.Errorf("[!] Error while enumerating subdomains: %w", err))
 					continue
 				}
 
@@ -67,10 +60,18 @@ func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 		return
 	}
 
-	t.checkErr(err)
+	if err != nil {
+		t.notify.ErrNotif(err)
+		return
+	}
 
 	tempFile, subsMap, err := tempFileNMap(newSubs)
-	t.checkErr(err)
+
+	if err != nil {
+		t.notify.ErrNotif(err)
+		return
+	}
+
 	defer os.Remove(tempFile)
 
 	op, err := t.execute(ctx,
@@ -79,7 +80,7 @@ func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 	)
 
 	if err != nil {
-		t.notify.ErrNotif("[!] Error while resolving new subdomains", err)
+		t.notify.ErrNotif(fmt.Errorf("[!] Error while resolving new subdomains: %w", err))
 		return
 	}
 
@@ -96,7 +97,7 @@ func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 
 		now := time.Now()
 
-		var updates []mongo.WriteModel
+		updates := make([]mongo.WriteModel, 0, len(newSubs))
 		for _, resolvedSub := range resolvedSubs {
 			subObj := subsMap[resolvedSub]
 			updates = append(updates,
@@ -120,7 +121,7 @@ func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 		_, err = t.db.Collection("subdomains").BulkWrite(ctx, updates, opts)
 
 		if err != nil {
-			t.notify.ErrNotif("[!] Error while updating subdomains", err)
+			t.notify.ErrNotif(fmt.Errorf("[!] Error while updating subdomains: %w", err))
 			return
 		}
 
@@ -130,10 +131,18 @@ func (t *task) resolveNewSubs(ctx context.Context, wg *sync.WaitGroup) {
 
 func (t *task) httpDiscovery(ctx context.Context, wg *sync.WaitGroup) {
 	subsWithIP, err := fetchNewSubsWithIP(ctx, t.db)
-	t.checkErr(err)
+	if err != nil {
+		t.notify.ErrNotif(err)
+		return
+	}
 
 	tempFile, subsMap, err := tempFileNMap(subsWithIP)
-	t.checkErr(err)
+
+	if err != nil {
+		t.notify.ErrNotif(err)
+		return
+	}
+
 	defer os.Remove(tempFile)
 
 	op, err := t.execute(ctx,
@@ -142,136 +151,204 @@ func (t *task) httpDiscovery(ctx context.Context, wg *sync.WaitGroup) {
 	)
 
 	if err != nil {
-		t.notify.ErrNotif("[!] Error service discovering new subdomains", err)
+		t.notify.ErrNotif(fmt.Errorf("[!] Error service discovering new subdomains: %w", err))
 		return
 	}
 
-	hosts := strings.Split(strings.TrimSpace(op), "\n")
-	if len(hosts) == 1 && hosts[0] == "" {
-		return
-	}
+	wg.Add(1)
+	go func() {
+		resolvedHosts := strings.Split(strings.TrimSpace(op), "\n")
+		if len(resolvedHosts) == 1 && resolvedHosts[0] == "" {
+			return
+		}
 
-	t.log(fmt.Sprintf("[+] Found %d new http services.", len(hosts)))
+		t.log(fmt.Sprintf("[+] Found %d new http services.", len(resolvedHosts)))
 
-	rhPattern := regexp.MustCompile(`(?:^https?:\/\/)(.*\..*$)`)
+		rhPattern := regexp.MustCompile(`(?:^https?:\/\/)(.*\..*$)`)
 
-	now := time.Now()
-	var updates []mongo.WriteModel
+		now := time.Now()
+		updates := make([]mongo.WriteModel, 0, len(subsWithIP))
 
-	for _, host := range hosts {
-		var port int
-
-		switch {
-		case strings.HasPrefix(host, "http:"):
-			port = 80
-		case strings.HasPrefix(host, "https:"):
-			port = 443
-		default:
-			port, err = strconv.Atoi(strings.Split(host, ":")[1])
+		for _, host := range resolvedHosts {
+			port, err := getPort(host)
 			if err != nil {
-				t.notify.ErrNotif(fmt.Sprintf("[!] Couldn't find port of %s", host), err)
+				t.notify.ErrNotif(err)
 				return
 			}
+
+			rawHost := rhPattern.FindStringSubmatch(host)[1]
+			subObj := subsMap[rawHost]
+
+			updates = append(
+				updates,
+				mongo.NewUpdateOneModel().
+					SetFilter(bson.M{"_id": subObj.ID}).
+					SetUpdate(bson.D{{"$set",
+						bson.D{{"http", []m.Http{{
+							IsActive: true,
+							Port:     port,
+							Created:  now,
+							Updated:  now,
+						}},
+						}},
+					}},
+					),
+			)
+
+			delete(subsMap, host)
 		}
-		rawHost := rhPattern.FindStringSubmatch(host)[1]
-		subObj := subsMap[rawHost]
-
-		updates = append(
-			updates,
-			mongo.NewUpdateOneModel().
-				SetFilter(bson.M{"_id": subObj.ID}).
-				SetUpdate(bson.D{{"$set",
-					bson.D{{"http", []m.Http{{
-						IsActive: true,
-						Port:     port,
-						Created:  now,
-						Updated:  now,
+		for _, notResolvedHost := range subsMap {
+			updates = append(
+				updates,
+				mongo.NewUpdateOneModel().
+					SetFilter(bson.M{"_id": notResolvedHost.ID}).
+					SetUpdate(bson.D{{"$set",
+						bson.D{{"http", []m.Http{{
+							IsActive: false,
+							Port:     0,
+							Created:  now,
+							Updated:  now,
+						}},
+						}},
 					}},
-					}},
-				}},
-				),
-		)
-	}
-	opts := options.BulkWrite().SetOrdered(true)
-	_, err = t.db.Collection("subdomains").BulkWrite(ctx, updates, opts)
+					),
+			)
+		}
 
-	if err != nil {
-		t.notify.ErrNotif("[!] Error while updating http field for new assets.", err)
-		return
-	}
+		opts := options.BulkWrite().SetOrdered(true)
+		_, err = t.db.Collection("subdomains").BulkWrite(ctx, updates, opts)
 
-	t.notify.NewHttpNotif(hosts)
+		if err != nil {
+			t.notify.ErrNotif(fmt.Errorf("[!] Error while updating http field for new assets: %w", err))
+			return
+		}
+
+		t.notify.NewHttpNotif(resolvedHosts)
+	}()
 }
 
 func (t *task) dnsResolveAll(ctx context.Context, wg *sync.WaitGroup) {
 	subs, err := fetchAllSubs(ctx, t.db)
-	t.checkErr(err)
+
+	if err != nil {
+		t.notify.ErrNotif(err)
+		return
+	}
 
 	tempFile, subsMap, err := tempFileNMap(subs)
-	t.checkErr(err)
+
+	if err != nil {
+		t.notify.ErrNotif(err)
+		return
+	}
 
 	defer os.Remove(tempFile)
 
 	op, err := t.execute(ctx, "/home/arcane/automation/resolve.sh", tempFile)
 	if err != nil {
-		t.notify.ErrNotif("[!] Error while resolving all subdomains", err)
+		t.notify.ErrNotif(fmt.Errorf("[!] Error while resolving all subdomains: %w", err))
 		return
 	}
 
-	now := time.Now()
-	resolvedSubs := strings.Split(strings.TrimSpace(op), "\n")
+	wg.Add(1)
+	go func() {
+		now := time.Now()
+		resolvedSubs := strings.Split(strings.TrimSpace(op), "\n")
 
-	var updates []mongo.WriteModel
-	var newResolvedSubs []string
+		updates := make([]mongo.WriteModel, 0, len(subs))
+		var newResolvedSubs []string
 
-	for _, resolvedSub := range resolvedSubs {
-		subObj := subsMap[resolvedSub]
+		for _, resolvedSub := range resolvedSubs {
+			subObj := subsMap[resolvedSub]
 
-		if subObj.Dns == nil {
-			updates = append(
-				updates,
-				mongo.NewUpdateOneModel().
-					SetFilter(bson.M{"_id": subObj.ID}).
-					SetUpdate(bson.D{{"$set",
-						bson.D{{"dns",
-							&m.Dns{IsActive: true, Created: now, Updated: now}}},
-					}},
-					))
-			newResolvedSubs = append(newResolvedSubs, resolvedSub)
-		} else {
-			if !subObj.Dns.IsActive {
+			if subObj.Dns == nil {
+				updates = append(
+					updates,
+					mongo.NewUpdateOneModel().
+						SetFilter(bson.M{"_id": subObj.ID}).
+						SetUpdate(bson.D{{"$set",
+							bson.D{{"dns",
+								&m.Dns{IsActive: true, Created: now, Updated: now}}},
+						}},
+						))
 				newResolvedSubs = append(newResolvedSubs, resolvedSub)
+			} else {
+				if !subObj.Dns.IsActive {
+					newResolvedSubs = append(newResolvedSubs, resolvedSub)
+				}
+				updates = append(
+					updates,
+					mongo.NewUpdateOneModel().
+						SetFilter(bson.M{"_id": subObj.ID}).
+						SetUpdate(bson.D{{"$set",
+							bson.M{"dns.isActive": true, "dns.updated": now},
+						}},
+						))
 			}
-			updates = append(
-				updates,
-				mongo.NewUpdateOneModel().
-					SetFilter(bson.M{"_id": subObj.ID}).
-					SetUpdate(bson.D{{"$set",
-						bson.M{"dns.isActive": true, "dns.updated": now},
-					}},
-					))
+
+			delete(subsMap, resolvedSub)
 		}
 
-		delete(subsMap, resolvedSub)
-	}
+		for _, notResolvedSub := range subsMap {
+			updates = append(updates, mongo.NewUpdateOneModel().
+				SetFilter(bson.M{"_id": notResolvedSub.ID}).
+				SetUpdate(bson.M{"$set": bson.M{"dns.isActive": false, "dns.updated": now}}))
+		}
 
-	for _, notResolvedSub := range subsMap {
-		updates = append(updates, mongo.NewUpdateOneModel().
-			SetFilter(bson.M{"_id": notResolvedSub.ID}).
-			SetUpdate(bson.M{"$set": bson.M{"dns.isActive": false, "dns.updated": now}}))
-	}
+		opts := options.BulkWrite().SetOrdered(true)
+		_, err = t.db.Collection("subdomains").BulkWrite(ctx, updates, opts)
+		if err != nil {
+			t.notify.ErrNotif(fmt.Errorf("[!] Error updating all subdomains with new resolved subs: %w", err))
+			return
+		}
 
-	opts := options.BulkWrite().SetOrdered(true)
-	_, err = t.db.Collection("subdomains").BulkWrite(ctx, updates, opts)
+		if len(newResolvedSubs) == 0 {
+			return
+		}
+		t.notify.NewDnsNotif(newResolvedSubs)
+	}()
+}
+
+func (t *task) httpDiscoveryAll(ctx context.Context, wg *sync.WaitGroup) {
+	subs, err := fetchAllSubs(ctx, t.db)
 	if err != nil {
-		t.notify.ErrNotif("[!] Error updating all subdomains with new resolved subs", err)
+		t.notify.ErrNotif(err)
 		return
 	}
 
-	if len(newResolvedSubs) == 0 {
+	tempFile, _, err := tempFileNMap(subs)
+	if err != nil {
+		t.notify.ErrNotif(err)
 		return
 	}
-	t.notify.NewDnsNotif(newResolvedSubs)
+
+	defer os.Remove(tempFile)
+
+	op, err := t.execute(
+		ctx,
+		"/home/arcane/automation/discovery.sh",
+		tempFile,
+	)
+	if err != nil {
+		t.notify.ErrNotif(fmt.Errorf("[!] Error while http discovering all subdomains: %w", err))
+		return
+	}
+
+	wg.Add(1)
+	go func() {
+		hosts := strings.Split(strings.TrimSpace(op), "\n")
+
+		if len(hosts) == 1 && hosts[0] == "" {
+			t.log("[~] No new http services has been found on all assets.")
+			return
+		} else {
+			t.log(fmt.Sprint("[~] Found %d new http services.", len(hosts)))
+		}
+
+		// now := time.Now()
+		// updates := make([]mongo.WriteModel, 0, len(subs))
+	}()
+
 }
 
 func (t *task) testJob(ctx context.Context, wg *sync.WaitGroup) {
