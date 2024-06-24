@@ -114,6 +114,18 @@ func initDb() *mongo.Database {
 		log.Fatalf("[!] Error while tried to create index for subdomains collection, err: %w", err)
 	}
 
+	hsIndexModel := mongo.IndexModel{
+		Keys:    bson.D{{"host", 1}},
+		Options: options.Index().SetUnique(true),
+	}
+	_, err = db.Collection("http-services").Indexes().CreateOne(ctx, hsIndexModel)
+	if err != nil {
+		log.Fatalf(
+			"[!] Error while tried to create index for http-services collection, err: %w",
+			err,
+		)
+	}
+
 	return db
 
 }

@@ -4,8 +4,9 @@ import (
 	m "EagleEye/internal/models"
 	"context"
 	"fmt"
+	"log"
 	"os"
-	"strconv"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,68 +15,43 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func fetchTargets(ctx context.Context, db *mongo.Database) ([]m.Target, error) {
-	var targets []m.Target
+func (t *SubdomainEnumeration) fetchAssets(ctx context.Context) error {
+	cursor, _ := t.db.Collection("targets").Find(ctx, bson.D{{}})
 
-	cursor, _ := db.Collection("targets").Find(ctx, bson.D{{}})
-
-	if err := cursor.All(ctx, &targets); err != nil {
-		return []m.Target{}, fmt.Errorf("[!] Error while fetching targets: %w", err)
+	if err := cursor.All(ctx, &t.targets); err != nil {
+		return fmt.Errorf("[!] Error while fetching targets: %w", err)
 	}
-
-	return targets, nil
+	return nil
 }
 
-func fetchAllSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
-	var subs []m.Subdomain
-
-	cursor, _ := db.Collection("subdomains").Find(ctx, bson.D{{}})
-	if err := cursor.All(ctx, &subs); err != nil {
-		return []m.Subdomain{}, fmt.Errorf("[!] Error while fetching targets: %w", err)
-	}
-
-	return subs, nil
-}
-
-func fetchNewSubs(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
-	var subs []m.Subdomain
+func (t *DnsResolve) fetchAssets(ctx context.Context) error {
 	// values := bson.D{{"subdomain", 1}, {"_id", 0}}
 
-	cursor, _ := db.Collection("subdomains").Find(
+	cursor, _ := t.db.Collection("subdomains").Find(
 		ctx,
 		bson.D{{"dns", nil}}) //, options.Find().SetProjection(values)
 
-	if err := cursor.All(ctx, &subs); err != nil {
-		return []m.Subdomain{}, fmt.Errorf("[!] Error while fetching new subs: %w", err)
+	if err := cursor.All(ctx, &t.subdomains); err != nil {
+		return fmt.Errorf("[!] Error while fetching new subs: %w", err)
 	}
 
-	return subs, nil
+	return nil
 }
 
-func fetchNewSubsWithIP(ctx context.Context, db *mongo.Database) ([]m.Subdomain, error) {
-	var subs []m.Subdomain
-
-	cursor, _ := db.Collection("subdomains").Find(
+func (t *HttpDiscovery) fetchAssets(ctx context.Context) error {
+	cursor, _ := t.db.Collection("http-services").Find(
 		ctx,
-		bson.D{{"$and",
-			bson.A{
-				bson.D{{"dns", bson.D{{"$ne", nil}}}},
-				bson.D{{"http", bson.D{{"$eq", nil}}}},
-				// bson.D{{"dns.created",
-				// 	bson.D{{"$gt", primitive.NewDateTimeFromTime(
-				// 		time.Now().Add(-24 * time.Hour),
-				// 	)}}}},
-			}}},
+		bson.M{"created": nil},
 	)
 
-	if err := cursor.All(ctx, &subs); err != nil {
-		return []m.Subdomain{}, fmt.Errorf("[!] Error while fetching new subs with ip: %w", err)
+	if err := cursor.All(ctx, &t.hosts); err != nil {
+		return fmt.Errorf("[!] Error while fetching new services: %w", err)
 	}
 
-	return subs, nil
+	return nil
 }
 
-func (t *task) insertSubs(ctx context.Context, op string, target m.Target, domain string) {
+func (t *SubdomainEnumeration) insertSubs(ctx context.Context, op string, target m.Target, domain string) {
 	var subdomains []interface{}
 	cursor := t.db.Collection("subdomains")
 	now := time.Now()
@@ -97,11 +73,7 @@ func (t *task) insertSubs(ctx context.Context, op string, target m.Target, domai
 		return
 	}
 
-	t.log(
-		fmt.Sprintf("[+] Found %d new subdomains for %s.",
-			len(val.InsertedIDs),
-			target.Name),
-	)
+	log.Printf("[+] Found %d new subdomains for %s.\n", len(val.InsertedIDs), target.Name)
 
 	if len(val.InsertedIDs) != 0 {
 		filter := bson.D{{"_id", bson.D{{"$in", val.InsertedIDs}}}}
@@ -121,7 +93,26 @@ func (t *task) insertSubs(ctx context.Context, op string, target m.Target, domai
 	}
 }
 
-func tempFileNMap(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
+func (t *DnsResolveAll) fetchAssets(ctx context.Context) error {
+	cursor, _ := t.db.Collection("subdomains").Find(ctx, bson.D{{}})
+	if err := cursor.All(ctx, &t.subdomains); err != nil {
+		return fmt.Errorf("[!] Error while fetching targets: %w", err)
+	}
+
+	return nil
+}
+
+func (t *HttpDiscoveryAll) fetchAssets(ctx context.Context) error {
+	cursor, _ := t.db.Collection("http-services").Find(ctx, bson.M{})
+	if err := cursor.All(ctx, &t.hosts); err != nil {
+		return fmt.Errorf("[!] Error while fetching http services: %w", err)
+	}
+
+	fmt.Println("testttttttttttt")
+	return nil
+}
+
+func tempFileNSubsMap(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
 	tempFile, err := os.CreateTemp("/tmp/", "subs")
 	if err != nil {
 		return "", nil, fmt.Errorf("[!] Error creating temp file: %w", err)
@@ -139,21 +130,57 @@ func tempFileNMap(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
 	return tempFile.Name(), subsMap, nil
 }
 
-func getPort(host string) (int, error) {
-	var port int
-	var err error
-
-	switch {
-	case strings.HasPrefix(host, "http:"):
-		port = 80
-	case strings.HasPrefix(host, "https:"):
-		port = 443
-	default:
-		port, err = strconv.Atoi(strings.Split(host, ":")[1])
-		if err != nil {
-			return 0, fmt.Errorf("[!] Couldn't find port of %s: %w", host, err)
-		}
+func tempFileNServicesMap(services []m.HttpService) (string, map[string]*m.HttpService, error) {
+	tempFile, err := os.CreateTemp("/tmp/", "services")
+	if err != nil {
+		return "", nil, fmt.Errorf("[!] Error creating temp file: %w", err)
 	}
 
-	return port, err
+	servicesMap := make(map[string]*m.HttpService, len(services))
+
+	for _, service := range services {
+		tempFile.WriteString(fmt.Sprintf("%s\n", service.Host))
+		servicesMap[service.Host] = &service
+	}
+
+	tempFile.Close()
+
+	return tempFile.Name(), servicesMap, nil
+}
+
+func createEmptyHttps(httpSlice *[]interface{}, sub m.Subdomain) {
+	PORTS := []int{80, 443}
+	now := time.Now()
+
+	for _, port := range PORTS {
+		*httpSlice = append(*httpSlice,
+			m.HttpService{
+				Subdomain: sub.ID,
+				Host:      fmt.Sprintf("%s:%d", sub.Subdomain, port),
+				IsActive:  false,
+				Created:   nil,
+				Updated:   now,
+			},
+		)
+	}
+
+}
+
+func extractHost(host string) string {
+	hostPattern := regexp.MustCompile(`^https?://(.*?:\d{1,5})$`)
+
+	var found string
+
+	found = hostPattern.FindString(host)
+	if found != "" {
+		return found
+	}
+
+	if strings.HasPrefix(host, "http:") {
+		found = fmt.Sprintf("%s:%d", host[7:], 80)
+	} else {
+		found = fmt.Sprintf("%s:%d", host[8:], 443)
+	}
+
+	return found
 }

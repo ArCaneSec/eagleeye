@@ -10,12 +10,12 @@ import (
 type jsonErrors map[string]map[string]string
 
 type Target struct {
-	ID primitive.ObjectID `bson:"_id,omitempty"`
-	Name       string   `json:"name"`
-	Bounty     *bool    `json:"bounty"`
-	Scope      []string `json:"scope"`
-	OutOfScope []string `json:"outOfScope" bson:"outOfScope"`
-	Source     string   `json:"source"`
+	ID         primitive.ObjectID `bson:"_id,omitempty"`
+	Name       string             `json:"name"`
+	Bounty     *bool              `json:"bounty"`
+	Scope      []string           `json:"scope"`
+	OutOfScope []string           `json:"outOfScope" bson:"outOfScope"`
+	Source     string             `json:"source"`
 }
 
 func (t *Target) Validate() jsonErrors {
@@ -41,23 +41,28 @@ func (t *Target) Validate() jsonErrors {
 }
 
 type Subdomain struct {
-	ID primitive.ObjectID `bson:"_id,omitempty"`
+	ID        primitive.ObjectID `bson:"_id,omitempty"`
 	Target    primitive.ObjectID
 	Subdomain string
 	Dns       *Dns
-	Http      []Http
 	Created   time.Time
 }
 
 type Dns struct {
 	IsActive bool `bson:"isActive"`
-	Created time.Time
-	Updated time.Time
+	Created  time.Time
+	Updated  time.Time
 }
 
-type Http struct {
-	IsActive bool `bson:"isActive"`
-	Port int
-	Created time.Time
-	Updated time.Time
+type HttpService struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty"`
+	Subdomain primitive.ObjectID
+	Host      string
+	IsActive  bool `bson:"isActive"`
+	Created   *time.Time
+	Updated   time.Time
+}
+
+func (h HttpService) String() string {
+	return h.Host
 }
