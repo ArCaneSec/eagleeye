@@ -4,10 +4,8 @@ import (
 	"EagleEye/internal/notifs"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
-	"reflect"
 	"sync"
 	"time"
 
@@ -31,30 +29,15 @@ func (j *job) runTask(wg *sync.WaitGroup) {
 	defer func() {
 		j.isRunning = false
 	}()
-	wg.Add(1)
-	defer wg.Done()
 
 	ctx, cancel := context.WithTimeout(context.Background(), j.cDuration)
 	j.killer = cancel
 
-	name := reflect.TypeOf(j.task).Elem().Name()
-	log.Printf("[*] %s started...\n", name)
-
-	j.task.run(ctx)
-
-	log.Printf("[#] %s finished.\n", name)
+	j.task.Start(ctx)
 
 	if j.subTasks != nil {
 		for _, task := range j.subTasks {
-			name := reflect.TypeOf(j.task).Elem().Name()
-			log.Printf("[#-*] %s started...\n", name)
-
-			wg.Add(1)
-			defer wg.Done()
-
-			task.run(ctx)
-
-			log.Printf("[#-#] %s finished.\n", name)
+			task.Start(ctx)
 		}
 	}
 }
@@ -144,9 +127,10 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 	}
 
 	jobs := []*job{
-		// subdomainEnumerationJob(deps),
+		subdomainEnumerationJob(deps),
 		// dnsResolveJob(deps),
-		httpDiscoveryJob(deps),
+		// httpDiscoveryJob(deps),
+		// httpDiscoveryAllJob(deps),
 	}
 
 	scheduler := &Scheduler{s, jobs, wg}
@@ -160,18 +144,18 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 	return scheduler
 }
 
-func dnsResolveJob(d *Dependencies) *job {
-	return &job{
-		duration: 1 * time.Hour,
-		task: &DnsResolveAll{
-			&DnsResolve{
-				Dependencies: d,
-				scriptPath:   "/home/arcane/automation/resolve.sh",
-			},
-		},
-		cDuration: 2 * time.Hour,
-	}
-}
+// func dnsResolveJob(d *Dependencies) *job {
+// 	return &job{
+// 		duration: 1 * time.Hour,
+// 		task: &DnsResolveAll{
+// 			&DnsResolve{
+// 				Dependencies: d,
+// 				scriptPath:   "/home/arcane/automation/resolve.sh",
+// 			},
+// 		},
+// 		cDuration: 2 * time.Hour,
+// 	}
+// }
 
 func subdomainEnumerationJob(d *Dependencies) *job {
 	return &job{
@@ -195,6 +179,17 @@ func subdomainEnumerationJob(d *Dependencies) *job {
 }
 
 func httpDiscoveryJob(d *Dependencies) *job {
+	return &job{
+		duration: 1 * time.Hour,
+		task: &HttpDiscovery{
+			Dependencies: d,
+			scriptPath:   "/home/arcane/automation/discovery.sh",
+		},
+		cDuration: 2 * time.Hour,
+	}
+}
+
+func httpDiscoveryAllJob(d *Dependencies) *job {
 	return &job{
 		duration: 1 * time.Hour,
 		task: &HttpDiscoveryAll{

@@ -4,14 +4,71 @@ import (
 	m "EagleEye/internal/models"
 	"EagleEye/internal/notifs"
 	"context"
+	"log"
+	"reflect"
 	"sync"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+type ErrNoResult struct{}
+
+func (err ErrNoResult) Error() string {
+	return ""
+}
+
 type Task interface {
-	run(context.Context)
+	Start(context.Context)
+}
+
+type regularTask interface {
 	fetchAssets(context.Context) error
+	runCommand(context.Context) (string, error)
+	checkResults(string) ([]string, error)
+	insertDB(context.Context, []string) error
+	ErrNotif(error)
+}
+
+func startRegularTask(ctx context.Context, t regularTask, wg *sync.WaitGroup) {
+	wg.Add(1)
+	defer wg.Done()
+
+	name := reflect.TypeOf(t).Elem().Name()
+	log.Printf("[*] %s started...\n", name)
+
+	if err := t.fetchAssets(ctx); err != nil {
+		t.ErrNotif(err)
+		return
+	}
+
+	output, err := t.runCommand(ctx)
+	if err != nil {
+		t.ErrNotif(err)
+		return
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(5 * time.Second)
+
+		results, err := t.checkResults(output)
+		if err != nil {
+			if _, ok := err.(ErrNoResult); ok {
+				log.Printf("[#] %s finished successfully.\n", name)
+				return
+			}
+			t.ErrNotif(err)
+			return
+		}
+
+		if err := t.insertDB(ctx, results); err != nil {
+			t.ErrNotif(err)
+			return
+		}
+		log.Printf("[#] %s finished successfully.\n", name)
+	}()
 }
 
 type Dependencies struct {
@@ -30,6 +87,7 @@ type DnsResolve struct {
 	*Dependencies
 	scriptPath string
 	subdomains []m.Subdomain
+	subsMap    map[string]*m.Subdomain
 }
 
 type DnsResolveAll struct {
@@ -40,6 +98,7 @@ type HttpDiscovery struct {
 	*Dependencies
 	scriptPath string
 	hosts      []m.HttpService
+	httpMap    map[string]*m.HttpService
 }
 
 type HttpDiscoveryAll struct {
