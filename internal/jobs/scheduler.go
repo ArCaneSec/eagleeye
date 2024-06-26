@@ -4,7 +4,6 @@ import (
 	"EagleEye/internal/notifs"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -14,61 +13,37 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-type taskDetails struct {
-	name     string
-	taskFunc func(context.Context, *sync.WaitGroup)
-}
-
 type job struct {
 	duration  time.Duration
 	cronJob   gocron.Job
-	task      taskDetails
+	task      Task
 	active    bool
 	cDuration time.Duration
 	killer    context.CancelFunc
 	isRunning bool
-	subTasks  []taskDetails
+	subTasks  []Task
 }
 
-func (j *job) runTask(wg *sync.WaitGroup) {
-	ctx, cancel := context.WithTimeout(context.Background(), j.cDuration)
-	defer cancel()
+func (j *job) runTask() {
+	j.isRunning = true
+	defer func() {
+		j.isRunning = false
+	}()
 
+	ctx, cancel := context.WithTimeout(context.Background(), j.cDuration)
 	j.killer = cancel
 
-	log.Printf("[*] %s started...\n", j.task.name)
-
-	wg.Add(1)
-	j.isRunning = true
-	j.task.taskFunc(ctx, wg)
-	wg.Done()
-
-	log.Printf("[#] %s finished.\n", j.task.name)
-
-	if len(j.subTasks) != 0 {
+	if j.subTasks != nil {
+		j.task.Start(ctx, true)
 		for _, task := range j.subTasks {
-			log.Printf("[#-*] %s started...\n", task.name)
-			
-			wg.Add(1)
-			task.taskFunc(ctx, wg)
-			wg.Done()
-
-			log.Printf("[#-#] %s finished.\n", task.name)
+			task.Start(ctx, true)
 		}
+		return
 	}
-	j.isRunning = false
+	j.task.Start(ctx, false)
 }
 
-type task struct {
-	db     *mongo.Database
-	notify notifs.Notify
-}
-
-func (t *task) log(msg string) {
-	log.Println(msg)
-}
-
-func (t *task) execute(ctx context.Context, command string, args ...string) (string, error) {
+func execute(ctx context.Context, command string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 
 	op, err := cmd.CombinedOutput()
@@ -83,7 +58,7 @@ func (t *task) execute(ctx context.Context, command string, args ...string) (str
 type Scheduler struct {
 	core gocron.Scheduler
 	jobs []*job
-	wg *sync.WaitGroup
+	wg   *sync.WaitGroup
 }
 
 func (s *Scheduler) DeactiveJob(id int) error {
@@ -118,7 +93,7 @@ func (s *Scheduler) ActiveJob(id int) error {
 
 	j, _ := s.core.NewJob(
 		gocron.DurationJob(job.duration),
-		gocron.NewTask(job.runTask, s.wg),
+		gocron.NewTask(job.runTask),
 		gocron.WithStartAt(gocron.WithStartImmediately()),
 	)
 
@@ -144,46 +119,18 @@ func (s *Scheduler) Shutdown() error {
 }
 
 func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
-	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(1, gocron.LimitModeWait))
-	t := &task{db, notifs.NewNotif(os.Getenv("DISCORD_WEBHOOK"))}
+	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(2, gocron.LimitModeWait))
+	notifier := notifs.NewNotif(os.Getenv("DISCORD_WEBHOOK"))
+	deps := &Dependencies{
+		db:     db,
+		notify: notifier,
+		wg:     wg,
+	}
 
 	jobs := []*job{
-		{
-			duration: 6 * time.Hour,
-			task: taskDetails{
-				name:     "Subdomain Enumeration",
-				taskFunc: t.subdomainEnumerate,
-			},
-			cDuration: 1 * time.Hour,
-			subTasks: []taskDetails{
-				{"Resolve New Subs", t.resolveNewSubs},
-				{"Service Discovery (news)", t.httpDiscovery}},
-		},
-		// {
-		// 	duration:  6 * time.Hour,
-		// 	task:      taskDetails{"Resolve New Subs", t.resolveNewSubs},
-		// 	cDuration: 1 * time.Hour,
-		// },
-		// {
-		// 	duration: 6 * time.Hour,
-		// 	task: taskDetails{
-		// 		name:     "Service Discovery (news)",
-		// 		taskFunc: t.httpDiscovery,
-		// 	},
-		// 	cDuration: 1 * time.Hour,
-		// },
-		// {
-		// 	duration:  48 * time.Hour,
-		// 	task:      taskDetails{"Dns Resolve", t.dnsResolveAll},
-		// 	cDuration: 1 * time.Hour,
-		// 	subTasks:  []taskDetails{},
-		// },
-		// {
-		// 	duration:  1 * time.Second,
-		// 	task:      taskDetails{"Test Job", t.testJob},
-		// 	cDuration: 1 * time.Hour,
-		// 	subTasks:  []taskDetails{},
-		// },
+		subdomainEnumerationJob(deps),
+		dnsResolveAllJob(deps),
+		httpDiscoveryAllJob(deps),
 	}
 
 	scheduler := &Scheduler{s, jobs, wg}
@@ -195,4 +142,51 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 	}
 
 	return scheduler
+}
+
+func dnsResolveAllJob(d *Dependencies) *job {
+	return &job{
+		duration: 1 * time.Hour,
+		task: &DnsResolveAll{
+			&DnsResolve{
+				Dependencies: d,
+				scriptPath:   "/home/arcane/automation/resolve.sh",
+			},
+		},
+		cDuration: 2 * time.Hour,
+	}
+}
+
+func subdomainEnumerationJob(d *Dependencies) *job {
+	return &job{
+		duration: 1 * time.Hour,
+		task: &SubdomainEnumeration{
+			Dependencies: d,
+			scriptPath:   "/home/arcane/automation/enumeration.sh",
+		},
+		cDuration: 2 * time.Hour,
+		subTasks: []Task{
+			&DnsResolve{
+				Dependencies: d,
+				scriptPath:   "/home/arcane/automation/resolve.sh",
+			},
+			&HttpDiscovery{
+				Dependencies: d,
+				scriptPath:   "/home/arcane/automation/discovery.sh",
+			},
+		},
+	}
+}
+
+func httpDiscoveryAllJob(d *Dependencies) *job {
+	return &job{
+		duration: 1 * time.Hour,
+		task: &HttpDiscoveryAll{
+			HttpDiscovery: &HttpDiscovery{
+				Dependencies: d,
+				scriptPath:   "/home/arcane/automation/discovery.sh",
+			},
+		},
+		cDuration: 2 * time.Hour,
+	}
 }
