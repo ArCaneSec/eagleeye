@@ -14,12 +14,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func (d *DnsResolve) Start(ctx context.Context) {
-	startRegularTask(ctx, d, d.Dependencies.wg)
+func (d *DnsResolve) Start(ctx context.Context, isSubTask bool) {
+	startRegularTask(ctx, d, d.Dependencies.wg, isSubTask)
 }
 
-func (d *DnsResolveAll) Start(ctx context.Context) {
-	startRegularTask(ctx, d, d.Dependencies.wg)
+func (d *DnsResolveAll) Start(ctx context.Context, isSubTask bool) {
+	startRegularTask(ctx, d, d.Dependencies.wg, isSubTask)
 }
 
 func (d *DnsResolve) fetchAssets(ctx context.Context) error {

@@ -12,8 +12,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func (h *HttpDiscovery) Start(ctx context.Context) {
-	startRegularTask(ctx, h, h.Dependencies.wg)
+func (h *HttpDiscovery) Start(ctx context.Context, isSubTask bool) {
+	startRegularTask(ctx, h, h.Dependencies.wg, isSubTask)
+}
+
+func (h *HttpDiscoveryAll) Start(ctx context.Context, isSubTask bool) {
+	startRegularTask(ctx, h, h.Dependencies.wg, isSubTask)
 }
 
 func (h *HttpDiscovery) fetchAssets(ctx context.Context) error {
@@ -78,11 +82,12 @@ func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
 	for _, host := range results {
 		hostWithPort := extractHost(host)
 		httpObj := t.httpMap[hostWithPort]
+		hasTls := strings.HasPrefix(host, "https")
 
 		if httpObj.Created == nil {
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": httpObj.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"isActive": true, "created": now, "updated": now}}))
+				SetUpdate(bson.M{"$set": bson.M{"tls": hasTls, "isActive": true, "created": now, "updated": now}}))
 			newHttpServices = append(newHttpServices, host)
 		} else {
 			if !httpObj.IsActive {
@@ -90,7 +95,7 @@ func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
 			}
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": httpObj.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"isActive": true, "updated": now}}))
+				SetUpdate(bson.M{"$set": bson.M{"tls": hasTls, "isActive": true, "updated": now}}))
 		}
 		delete(t.httpMap, hostWithPort)
 	}
@@ -99,11 +104,11 @@ func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
 		if notResolvedhost.Created == nil {
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": notResolvedhost.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"isActive": false, "created": now, "updated": now}}))
+				SetUpdate(bson.M{"$set": bson.M{"tls": false, "isActive": false, "created": now, "updated": now}}))
 		} else {
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": notResolvedhost.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"isActive": false, "updated": now}}))
+				SetUpdate(bson.M{"$set": bson.M{"tls": false, "isActive": false, "updated": now}}))
 		}
 	}
 

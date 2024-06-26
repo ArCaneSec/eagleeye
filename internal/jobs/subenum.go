@@ -15,7 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func (s *SubdomainEnumeration) Start(ctx context.Context) {
+func (s *SubdomainEnumeration) Start(ctx context.Context, isSubTask bool) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
@@ -46,10 +46,7 @@ func (s *SubdomainEnumeration) Start(ctx context.Context) {
 					return
 				}
 
-				s.wg.Add(1)
-				go func() {
-					defer s.wg.Done()
-
+				checkNinsert := func() {
 					subs, err := s.checkResults(output, target.ID)
 					if err != nil {
 						if _, ok := err.(ErrNoResult); ok {
@@ -60,7 +57,17 @@ func (s *SubdomainEnumeration) Start(ctx context.Context) {
 					}
 
 					s.insertDB(ctx, subs, target, domain)
-				}()
+				}
+
+				if !isSubTask {
+					s.wg.Add(1)
+					go func() {
+						defer s.wg.Done()
+						checkNinsert()
+					}()
+				} else {
+					checkNinsert()
+				}
 			}
 		}
 	}

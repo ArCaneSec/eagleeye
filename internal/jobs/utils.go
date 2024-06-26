@@ -51,9 +51,10 @@ func createEmptyHttps(httpSlice *[]interface{}, sub m.Subdomain) {
 
 	for _, port := range PORTS {
 		*httpSlice = append(*httpSlice,
-			m.HttpService{
+			&m.HttpService{
 				Subdomain: sub.ID,
 				Host:      fmt.Sprintf("%s:%d", sub.Subdomain, port),
+				Tls:       false,
 				IsActive:  false,
 				Created:   nil,
 				Updated:   now,

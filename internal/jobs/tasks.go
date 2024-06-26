@@ -7,7 +7,6 @@ import (
 	"log"
 	"reflect"
 	"sync"
-	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -19,7 +18,7 @@ func (err ErrNoResult) Error() string {
 }
 
 type Task interface {
-	Start(context.Context)
+	Start(context.Context, bool)
 }
 
 type regularTask interface {
@@ -30,7 +29,7 @@ type regularTask interface {
 	ErrNotif(error)
 }
 
-func startRegularTask(ctx context.Context, t regularTask, wg *sync.WaitGroup) {
+func startRegularTask(ctx context.Context, t regularTask, wg *sync.WaitGroup, isSubTask bool) {
 	wg.Add(1)
 	defer wg.Done()
 
@@ -48,11 +47,7 @@ func startRegularTask(ctx context.Context, t regularTask, wg *sync.WaitGroup) {
 		return
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		time.Sleep(5 * time.Second)
-
+	checkNinsert := func() {
 		results, err := t.checkResults(output)
 		if err != nil {
 			if _, ok := err.(ErrNoResult); ok {
@@ -68,7 +63,17 @@ func startRegularTask(ctx context.Context, t regularTask, wg *sync.WaitGroup) {
 			return
 		}
 		log.Printf("[#] %s finished successfully.\n", name)
-	}()
+	}
+
+	if !isSubTask {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			checkNinsert()
+		}()
+		return
+	}
+	checkNinsert()
 }
 
 type Dependencies struct {

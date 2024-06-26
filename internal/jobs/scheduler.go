@@ -24,7 +24,7 @@ type job struct {
 	subTasks  []Task
 }
 
-func (j *job) runTask(wg *sync.WaitGroup) {
+func (j *job) runTask() {
 	j.isRunning = true
 	defer func() {
 		j.isRunning = false
@@ -33,13 +33,14 @@ func (j *job) runTask(wg *sync.WaitGroup) {
 	ctx, cancel := context.WithTimeout(context.Background(), j.cDuration)
 	j.killer = cancel
 
-	j.task.Start(ctx)
-
 	if j.subTasks != nil {
+		j.task.Start(ctx, true)
 		for _, task := range j.subTasks {
-			task.Start(ctx)
+			task.Start(ctx, true)
 		}
+		return
 	}
+	j.task.Start(ctx, false)
 }
 
 func execute(ctx context.Context, command string, args ...string) (string, error) {
@@ -92,7 +93,7 @@ func (s *Scheduler) ActiveJob(id int) error {
 
 	j, _ := s.core.NewJob(
 		gocron.DurationJob(job.duration),
-		gocron.NewTask(job.runTask, s.wg),
+		gocron.NewTask(job.runTask),
 		gocron.WithStartAt(gocron.WithStartImmediately()),
 	)
 
@@ -118,7 +119,7 @@ func (s *Scheduler) Shutdown() error {
 }
 
 func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
-	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(1, gocron.LimitModeWait))
+	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(2, gocron.LimitModeWait))
 	notifier := notifs.NewNotif(os.Getenv("DISCORD_WEBHOOK"))
 	deps := &Dependencies{
 		db:     db,
@@ -128,9 +129,8 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 
 	jobs := []*job{
 		subdomainEnumerationJob(deps),
-		// dnsResolveJob(deps),
-		// httpDiscoveryJob(deps),
-		// httpDiscoveryAllJob(deps),
+		dnsResolveAllJob(deps),
+		httpDiscoveryAllJob(deps),
 	}
 
 	scheduler := &Scheduler{s, jobs, wg}
@@ -144,18 +144,18 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 	return scheduler
 }
 
-// func dnsResolveJob(d *Dependencies) *job {
-// 	return &job{
-// 		duration: 1 * time.Hour,
-// 		task: &DnsResolveAll{
-// 			&DnsResolve{
-// 				Dependencies: d,
-// 				scriptPath:   "/home/arcane/automation/resolve.sh",
-// 			},
-// 		},
-// 		cDuration: 2 * time.Hour,
-// 	}
-// }
+func dnsResolveAllJob(d *Dependencies) *job {
+	return &job{
+		duration: 1 * time.Hour,
+		task: &DnsResolveAll{
+			&DnsResolve{
+				Dependencies: d,
+				scriptPath:   "/home/arcane/automation/resolve.sh",
+			},
+		},
+		cDuration: 2 * time.Hour,
+	}
+}
 
 func subdomainEnumerationJob(d *Dependencies) *job {
 	return &job{
@@ -175,17 +175,6 @@ func subdomainEnumerationJob(d *Dependencies) *job {
 				scriptPath:   "/home/arcane/automation/discovery.sh",
 			},
 		},
-	}
-}
-
-func httpDiscoveryJob(d *Dependencies) *job {
-	return &job{
-		duration: 1 * time.Hour,
-		task: &HttpDiscovery{
-			Dependencies: d,
-			scriptPath:   "/home/arcane/automation/discovery.sh",
-		},
-		cDuration: 2 * time.Hour,
 	}
 }
 
