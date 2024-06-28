@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	m "EagleEye/internal/models"
 	"context"
 	"fmt"
 	"log"
@@ -75,46 +76,53 @@ func (t *HttpDiscovery) checkResults(output string) ([]string, error) {
 }
 
 func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
-	now := time.Now()
-	updates := make([]mongo.WriteModel, 0, len(t.hosts))
-	var newHttpServices []string
+
+	var (
+		now             = time.Now()
+		updates         = make([]mongo.WriteModel, 0, len(t.hosts))
+		newHttpServices = make([]string, 0, len(t.hosts)/2)
+		url             string
+		hostWithPort    string
+		httpObj         *m.HttpService
+		ok              bool
+	)
 
 	for _, host := range results {
-		hostWithPort := extractHost(host)
-		httpObj := t.httpMap[hostWithPort]
-		hasTls := strings.HasPrefix(host, "https")
+		url, hostWithPort = extractHostNUrl(host)
+		httpObj, ok = t.httpMap[url]
+
+		if !ok {
+			httpObj = t.httpMap[hostWithPort]
+		}
 
 		if httpObj.Created == nil {
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": httpObj.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"tls": hasTls, "isActive": true, "created": now, "updated": now}}))
+				SetUpdate(bson.M{"$set": bson.M{"host": url, "isActive": true, "created": now, "updated": now}}))
 			newHttpServices = append(newHttpServices, host)
+
+			// When http service is created for the first time, host value is schemeless, check dns resolve job.
+			delete(t.httpMap, hostWithPort)
 		} else {
 			if !httpObj.IsActive {
 				newHttpServices = append(newHttpServices, host)
 			}
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": httpObj.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"tls": hasTls, "isActive": true, "updated": now}}))
+				SetUpdate(bson.M{"$set": bson.M{"isActive": true, "updated": now}}))
+
+			delete(t.httpMap, url)
 		}
-		delete(t.httpMap, hostWithPort)
 	}
 
 	for _, notResolvedhost := range t.httpMap {
-		if notResolvedhost.Created == nil {
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": notResolvedhost.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"tls": false, "isActive": false, "created": now, "updated": now}}))
-		} else {
-			updates = append(updates, mongo.NewUpdateOneModel().
-				SetFilter(bson.M{"_id": notResolvedhost.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"tls": false, "isActive": false, "updated": now}}))
-		}
+				SetUpdate(bson.M{"$set": bson.M{"isActive": false, "updated": now}}))
 	}
 
 	_, err := t.db.Collection("http-services").BulkWrite(ctx, updates)
 	if err != nil {
-		// t.notify.ErrNotif(fmt.Errorf("[!] Error while updating http field for new assets: %w", err))
 		return fmt.Errorf("[!] Error while updating http field for new assets: %w", err)
 	}
 

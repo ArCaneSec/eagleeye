@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+var (
+	hasPort      = regexp.MustCompile(`^https?:\/\/.*?:(\d{1,5})$`)
+	hostWithPort = regexp.MustCompile(`^https?:\/\/(.*?:\d{1,5})$`)
+)
+
 func tempFileNSubsMap(subs []m.Subdomain) (string, map[string]*m.Subdomain, error) {
 	tempFile, err := os.CreateTemp("/tmp/", "subs")
 	if err != nil {
@@ -54,7 +59,6 @@ func createEmptyHttps(httpSlice *[]interface{}, sub m.Subdomain) {
 			&m.HttpService{
 				Subdomain: sub.ID,
 				Host:      fmt.Sprintf("%s:%d", sub.Subdomain, port),
-				Tls:       false,
 				IsActive:  false,
 				Created:   nil,
 				Updated:   now,
@@ -64,21 +68,22 @@ func createEmptyHttps(httpSlice *[]interface{}, sub m.Subdomain) {
 
 }
 
-func extractHost(host string) string {
-	hostPattern := regexp.MustCompile(`^https?://(.*?:\d{1,5})$`)
-
-	var found string
-
-	found = hostPattern.FindString(host)
-	if found != "" {
-		return found
+func extractHostNUrl(host string) (string, string) {
+	port := hasPort.FindString(host)
+	if port != "" {
+		return fmt.Sprintf("%s:%s", host, port), hostWithPort.FindString(host)
 	}
+
+	var url string
+	var hostNport string
 
 	if strings.HasPrefix(host, "http:") {
-		found = fmt.Sprintf("%s:%d", host[7:], 80)
+		url = fmt.Sprintf("%s:%d", host, 80)
+		hostNport = fmt.Sprintf("%s:%d", host[7:], 80)
 	} else {
-		found = fmt.Sprintf("%s:%d", host[8:], 443)
+		url = fmt.Sprintf("%s:%d", host, 443)
+		hostNport = fmt.Sprintf("%s:%d", host[8:], 443)
 	}
 
-	return found
+	return url, hostNport
 }

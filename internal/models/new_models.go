@@ -58,7 +58,6 @@ type HttpService struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty"`
 	Subdomain primitive.ObjectID
 	Host      string
-	Tls       bool
 	IsActive  bool `bson:"isActive"`
 	Created   *time.Time
 	Updated   time.Time

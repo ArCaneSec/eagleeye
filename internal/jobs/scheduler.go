@@ -119,7 +119,7 @@ func (s *Scheduler) Shutdown() error {
 }
 
 func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
-	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(2, gocron.LimitModeWait))
+	s, _ := gocron.NewScheduler(gocron.WithLimitConcurrentJobs(1, gocron.LimitModeWait))
 	notifier := notifs.NewNotif(os.Getenv("DISCORD_WEBHOOK"))
 	deps := &Dependencies{
 		db:     db,
