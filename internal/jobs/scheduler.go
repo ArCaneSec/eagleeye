@@ -128,9 +128,10 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 	}
 
 	jobs := []*job{
-		subdomainEnumerationJob(deps),
-		dnsResolveAllJob(deps),
-		httpDiscoveryAllJob(deps),
+		// subdomainEnumerationJob(deps),
+		// dnsResolveAllJob(deps),
+		// httpDiscoveryAllJob(deps),
+		updateNucleiJob(deps),
 	}
 
 	scheduler := &Scheduler{s, jobs, wg}
@@ -188,5 +189,19 @@ func httpDiscoveryAllJob(d *Dependencies) *job {
 			},
 		},
 		cDuration: 2 * time.Hour,
+	}
+}
+
+func updateNucleiJob(d *Dependencies) *job {
+	return &job{
+		duration: 1 * time.Hour,
+		task: &UpdateNuclei{
+			Dependencies: d,
+			scriptPath:   "/home/arcane/tools/EagleEye/scripts/update-nuclei.sh",
+		},
+		cDuration: 2 * time.Hour,
+		// subTasks: []Task{
+		// 	&UpdateNuclei{},
+		// },
 	}
 }

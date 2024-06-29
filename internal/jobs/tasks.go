@@ -109,3 +109,14 @@ type HttpDiscovery struct {
 type HttpDiscoveryAll struct {
 	*HttpDiscovery
 }
+
+type UpdateNuclei struct {
+	*Dependencies
+	scriptPath string
+	configFile string `bson:"scriptsConfigFile"`
+}
+
+type RunNewTemplates struct {
+	*Dependencies
+	scriptPath string
+}
