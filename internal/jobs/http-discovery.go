@@ -59,7 +59,7 @@ func (h *HttpDiscovery) runCommand(ctx context.Context) (string, error) {
 	)
 
 	if err != nil {
-		return "", fmt.Errorf("[!] Error service discovering subdomains: %w", err)
+		return "", fmt.Errorf("[!] Error service discovering subdomains: %w", op)
 	}
 
 	return op, nil

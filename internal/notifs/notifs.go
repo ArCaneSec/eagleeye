@@ -10,6 +10,7 @@ type Notify interface {
 	ErrNotif(err error)
 	NewDnsNotif(assets []string)
 	NewHttpNotif(hosts []string)
+	NucleiResultsNotif(string)
 }
 
 type Notif struct {
@@ -25,17 +26,11 @@ func NewNotif(webhook string) Notify {
 }
 
 func (n Notif) NewAssetNotif(target string, domain string, assets []string) {
-	// var l []string
-	// for i := 0; i < 100; i++ {
-	// 	l = append(l, fmt.Sprint(i))
-
-	// }
-	// strAssets := strings.Join(l, "\n")
 	strAssets := strings.Join(assets, "\n")
 
 	n.provider.SendMessage("New Subdomains",
 		fmt.Sprintf("%d new subdomains found for %s", len(assets), target),
-		fmt.Sprintf("domain: %s", domain),
+		domain,
 		strAssets,
 	)
 }
@@ -49,7 +44,7 @@ func (n Notif) NewDnsNotif(assets []string) {
 
 	n.provider.SendMessage("New A Records",
 		fmt.Sprintf("%d new A records found.", len(assets)),
-		"Assets:",
+		"dns-records",
 		strAssets,
 	)
 }
@@ -59,7 +54,11 @@ func (n Notif) NewHttpNotif(hosts []string) {
 
 	n.provider.SendMessage("New Http Services",
 		fmt.Sprintf("%d new http services found.", len(hosts)),
-		"Hosts:",
+		"http-services",
 		strAssets,
 	)
+}
+
+func (n Notif) NucleiResultsNotif(results string) {
+	n.provider.SendMessage("Nuclei Results", "Nuclei results with newly templates.", "nuclei-results", results)
 }

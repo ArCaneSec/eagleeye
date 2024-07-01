@@ -42,7 +42,7 @@ func (s *SubdomainEnumeration) Start(ctx context.Context, isSubTask bool) {
 			default:
 				output, err = s.runCommand(ctx, domain)
 				if err != nil {
-					s.notify.ErrNotif(err)
+					s.notify.ErrNotif(fmt.Errorf("[!] Error while executing subdomain enumeration command: %s", output))
 					return
 				}
 
@@ -97,13 +97,14 @@ func (t *SubdomainEnumeration) runCommand(ctx context.Context, domain string) (s
 }
 
 func (t *SubdomainEnumeration) checkResults(output string, id primitive.ObjectID) ([]interface{}, error) {
-	subdomains := make([]interface{}, 0, 100)
 	now := time.Now()
 
 	subs := strings.Split(strings.TrimSpace(output), "\n")
 	if len(subs) == 0 {
 		return nil, ErrNoResult{}
 	}
+
+	subdomains := make([]interface{}, 0, len(subs))
 
 	for _, sub := range subs {
 		subdomains = append(subdomains, m.Subdomain{Target: id, Subdomain: sub, Created: now})

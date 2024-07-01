@@ -87,3 +87,12 @@ func extractHostNUrl(host string) (string, string) {
 
 	return url, hostNport
 }
+
+func checkResults(results string) (string, error) {
+	op := strings.TrimSpace(results)
+	if op == "" {
+		return "", ErrNoResult{}
+	}
+
+	return op, nil
+}

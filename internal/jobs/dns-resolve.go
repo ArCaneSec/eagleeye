@@ -56,7 +56,7 @@ func (d *DnsResolve) runCommand(ctx context.Context) (string, error) {
 
 	op, err := execute(ctx, d.scriptPath, tempFile)
 	if err != nil {
-		return "", fmt.Errorf("[!] Error while resolving all subdomains: %w", err)
+		return "", fmt.Errorf("[!] Error while resolving all subdomains: %s", op)
 	}
 
 	return op, nil
