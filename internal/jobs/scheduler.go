@@ -1,7 +1,7 @@
 package jobs
 
 import (
-	"EagleEye/internal/notifs"
+	"github.com/ArCaneSec/eagleeye/internal/notifs"
 	"context"
 	"fmt"
 	"os"

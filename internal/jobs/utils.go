@@ -1,7 +1,7 @@
 package jobs
 
 import (
-	m "EagleEye/internal/models"
+	m "github.com/ArCaneSec/eagleeye/pkg/models"
 	"fmt"
 	"os"
 	"regexp"

@@ -1,11 +1,12 @@
 package jobs
 
 import (
-	m "EagleEye/internal/models"
-	"EagleEye/internal/notifs"
+	m "github.com/ArCaneSec/eagleeye/pkg/models"
+	"github.com/ArCaneSec/eagleeye/internal/notifs"
 	"context"
 	"log"
 	"reflect"
+	"strings"
 	"sync"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -119,4 +120,18 @@ type UpdateNuclei struct {
 type RunNewTemplates struct {
 	*Dependencies
 	scriptPath string
+}
+
+type TestDiscord struct {
+	*Dependencies
+}
+
+func (t *TestDiscord) Start(ctx context.Context, b bool) {
+	val := make([]string, 0, 100000)
+
+	for i := 0; i <= 100000; i++ {
+		val = append(val, "i")
+	}
+
+	t.notify.NucleiResultsNotif(strings.Join(val, ""))
 }

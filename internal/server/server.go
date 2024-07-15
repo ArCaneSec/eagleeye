@@ -1,7 +1,7 @@
-package main
+package server
 
 import (
-	"EagleEye/internal/jobs"
+	"github.com/ArCaneSec/eagleeye/internal/jobs"
 	"context"
 	"encoding/json"
 	"log"
@@ -25,7 +25,7 @@ type Server struct {
 	scheduler *jobs.Scheduler
 }
 
-func main() {
+func InitializeEagleEye() {
 	godotenv.Load("../../.env")
 	r := chi.NewRouter()
 

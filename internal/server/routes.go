@@ -1,7 +1,7 @@
-package main
+package server
 
 import (
-	m "EagleEye/internal/models"
+	m "github.com/ArCaneSec/eagleeye/pkg/models"
 	"context"
 	"encoding/json"
 	"fmt"
