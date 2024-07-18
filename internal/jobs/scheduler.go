@@ -1,13 +1,17 @@
 package jobs
 
 import (
-	"github.com/ArCaneSec/eagleeye/internal/notifs"
+	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
+
+	"github.com/ArCaneSec/eagleeye/internal/notifs"
 
 	"github.com/go-co-op/gocron/v2"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -25,6 +29,10 @@ type job struct {
 }
 
 func (j *job) runTask() {
+	if !j.active {
+		return
+	}
+
 	j.isRunning = true
 	defer func() {
 		j.isRunning = false
@@ -36,6 +44,10 @@ func (j *job) runTask() {
 	if j.subTasks != nil {
 		j.task.Start(ctx, true)
 		for _, task := range j.subTasks {
+			time.Sleep(5 * time.Millisecond)
+			if !j.active {
+				return
+			}
 			task.Start(ctx, true)
 		}
 		return
@@ -44,15 +56,37 @@ func (j *job) runTask() {
 }
 
 func execute(ctx context.Context, command string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
-
-	op, err := cmd.CombinedOutput()
-
-	if err != nil {
-		return string(op), err
+	// cmd := exec.CommandContext(ctx, command, args...)
+	cmd := exec.CommandContext(ctx, "bash", "-c", "sleep 5;echo 'test'")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
 	}
 
-	return string(op), nil
+	err := cmd.Start()
+
+	if err != nil {
+		fmt.Println("err, returning:", err)
+		return "", err
+	}
+	err = cmd.Wait()
+	if err != nil {
+		fmt.Println("err, returning:", err)
+		return "", err
+	}
+
+	
+	var stdout, stderr bytes.Buffer
+    cmd.Stdout = &stdout
+    cmd.Stderr = &stderr
+	if err != nil {
+		log.Printf("Command failed with error: %v", err)
+		return "", fmt.Errorf("cmd: error while running command: %s", stderr.String())
+	}
+
+	op := stdout.String()
+	fmt.Println(op)
+	fmt.Println("returning")
+	return op, nil
 }
 
 type Scheduler struct {
@@ -62,11 +96,11 @@ type Scheduler struct {
 }
 
 func (s *Scheduler) DeactiveJob(id int) error {
-	if id == 0 || id > len(s.jobs) {
+	if id+1 > len(s.jobs) {
 		return fmt.Errorf("invalid id: %d", id)
 	}
 
-	job := s.jobs[id-1]
+	job := s.jobs[id]
 	if !job.active {
 		return fmt.Errorf("job id %d is already inactive", id)
 	}
@@ -74,19 +108,15 @@ func (s *Scheduler) DeactiveJob(id int) error {
 	s.core.RemoveJob(job.cronJob.ID())
 	job.active = false
 
-	if job.isRunning {
-		job.killer()
-	}
-
 	return nil
 }
 
 func (s *Scheduler) ActiveJob(id int) error {
-	if id == 0 || id > len(s.jobs) {
+	if id+1 > len(s.jobs) {
 		return fmt.Errorf("invalid id: %d", id)
 	}
 
-	job := s.jobs[id-1]
+	job := s.jobs[id]
 	if job.active {
 		return fmt.Errorf("job id %d is already active", id)
 	}
@@ -104,12 +134,12 @@ func (s *Scheduler) ActiveJob(id int) error {
 }
 
 func (s *Scheduler) Shutdown() error {
-	for _, job := range s.jobs {
+	for id, job := range s.jobs {
 		if !job.active {
 			continue
 		}
 
-		err := s.core.RemoveJob(job.cronJob.ID())
+		err := s.DeactiveJob(id)
 		if err != nil {
 			return fmt.Errorf("error while shutting scheduler down: %w", err)
 		}
@@ -129,17 +159,17 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 
 	jobs := []*job{
 		subdomainEnumerationJob(deps),
-		dnsResolveAllJob(deps),
-		httpDiscoveryAllJob(deps),
-		updateNucleiJob(deps),
-		runNewTempaltesJob(deps),
+		// dnsResolveAllJob(deps),
+		// httpDiscoveryAllJob(deps),
+		// updateNucleiJob(deps),
+		// runNewTempaltesJob(deps),
 	}
 
 	scheduler := &Scheduler{s, jobs, wg}
 
 	s.Start()
 	for id := range scheduler.jobs {
-		scheduler.ActiveJob(id + 1)
+		scheduler.ActiveJob(id)
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -212,9 +242,9 @@ func runNewTempaltesJob(d *Dependencies) *job {
 		duration: 1 * time.Hour,
 		task: &RunNewTemplates{
 			Dependencies: d,
-			scriptPath: "/home/arcane/tools/EagleEye/scripts/nuclei.sh",
+			scriptPath:   "/home/arcane/tools/EagleEye/scripts/nuclei.sh",
 		},
-		cDuration:  2 * time.Hour,
+		cDuration: 2 * time.Hour,
 	}
 }
 

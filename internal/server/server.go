@@ -1,7 +1,6 @@
 package server
 
 import (
-	"github.com/ArCaneSec/eagleeye/internal/jobs"
 	"context"
 	"encoding/json"
 	"log"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/ArCaneSec/eagleeye/internal/jobs"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -45,7 +46,7 @@ func InitializeEagleEye() {
 	r.Delete("/job/", s.deactiveAll)
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, os.Interrupt)
 	var interruptCount int
 
 	go func() {
