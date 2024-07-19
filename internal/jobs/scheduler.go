@@ -1,10 +1,8 @@
 package jobs
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -44,7 +42,6 @@ func (j *job) runTask() {
 	if j.subTasks != nil {
 		j.task.Start(ctx, true)
 		for _, task := range j.subTasks {
-			time.Sleep(5 * time.Millisecond)
 			if !j.active {
 				return
 			}
@@ -56,37 +53,19 @@ func (j *job) runTask() {
 }
 
 func execute(ctx context.Context, command string, args ...string) (string, error) {
-	// cmd := exec.CommandContext(ctx, command, args...)
-	cmd := exec.CommandContext(ctx, "bash", "-c", "sleep 5;echo 'test'")
+	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
 
-	err := cmd.Start()
+	op, err := cmd.CombinedOutput()
 
 	if err != nil {
-		fmt.Println("err, returning:", err)
-		return "", err
-	}
-	err = cmd.Wait()
-	if err != nil {
-		fmt.Println("err, returning:", err)
-		return "", err
+		fmt.Println(err)
+		return string(op), err
 	}
 
-	
-	var stdout, stderr bytes.Buffer
-    cmd.Stdout = &stdout
-    cmd.Stderr = &stderr
-	if err != nil {
-		log.Printf("Command failed with error: %v", err)
-		return "", fmt.Errorf("cmd: error while running command: %s", stderr.String())
-	}
-
-	op := stdout.String()
-	fmt.Println(op)
-	fmt.Println("returning")
-	return op, nil
+	return string(op), nil
 }
 
 type Scheduler struct {
@@ -159,10 +138,10 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 
 	jobs := []*job{
 		subdomainEnumerationJob(deps),
-		// dnsResolveAllJob(deps),
-		// httpDiscoveryAllJob(deps),
-		// updateNucleiJob(deps),
-		// runNewTempaltesJob(deps),
+		dnsResolveAllJob(deps),
+		httpDiscoveryAllJob(deps),
+		updateNucleiJob(deps),
+		runNewTempaltesJob(deps),
 	}
 
 	scheduler := &Scheduler{s, jobs, wg}
@@ -231,9 +210,6 @@ func updateNucleiJob(d *Dependencies) *job {
 			scriptPath:   "/home/arcane/tools/EagleEye/scripts/update-nuclei.sh",
 		},
 		cDuration: 2 * time.Hour,
-		// subTasks: []Task{
-		// 	&UpdateNuclei{},
-		// },
 	}
 }
 

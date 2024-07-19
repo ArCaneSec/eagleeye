@@ -1,13 +1,14 @@
 package jobs
 
 import (
-	m "github.com/ArCaneSec/eagleeye/pkg/models"
-	"github.com/ArCaneSec/eagleeye/internal/notifs"
 	"context"
 	"log"
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/ArCaneSec/eagleeye/internal/notifs"
+	m "github.com/ArCaneSec/eagleeye/pkg/models"
 
 	"go.mongodb.org/mongo-driver/mongo"
 )
