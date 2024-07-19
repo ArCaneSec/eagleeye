@@ -89,6 +89,7 @@ func (s *Server) activeJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deactiveJob(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("got called")
 	jobId := chi.URLParam(r, "id")
 	intJobId, _ := strconv.Atoi(jobId)
 

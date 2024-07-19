@@ -42,7 +42,7 @@ func (s *SubdomainEnumeration) Start(ctx context.Context, isSubTask bool) {
 			default:
 				output, err = s.runCommand(ctx, domain)
 				if err != nil {
-					s.notify.ErrNotif(fmt.Errorf("[!] Error while executing subdomain enumeration command: %s", output))
+					s.notify.ErrNotif(err)
 					return
 				}
 
@@ -90,7 +90,7 @@ func (t *SubdomainEnumeration) runCommand(ctx context.Context, domain string) (s
 	op, err := execute(ctx, t.scriptPath, domain)
 
 	if err != nil {
-		return "", fmt.Errorf("[!] Error while enumerating subdomains: %w", err)
+		return "", fmt.Errorf("[!] Error while enumerating subdomains: %s", err)
 	}
 
 	return op, err
