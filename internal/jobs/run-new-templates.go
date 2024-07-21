@@ -29,25 +29,37 @@ func (r *RunNewTemplates) Start(ctx context.Context, isSubTask bool) {
 		return
 	}
 
-	output, err := r.runCommand(ctx, templatesPath, hosts)
-	if err != nil {
-		r.notify.ErrNotif(err)
-		return
-	}
+	// Breaking data into small chunks so we can scan all safety
+	MAX_CHUNKS := 10000
+	for len(hosts) > 0 {
+		if MAX_CHUNKS > len(hosts) {
+			MAX_CHUNKS = len(hosts)
+		}
+		chunks := hosts[:MAX_CHUNKS]
+		hosts = hosts[MAX_CHUNKS:]
 
-	results, err := checkResults(output)
-	if err != nil {
-		if _, ok := err.(ErrNoResult); ok {
-			log.Println("[*] RunNewTemplates finished.")
+		output, err := r.runCommand(ctx, templatesPath, chunks)
+		if err != nil {
+			r.notify.ErrNotif(err)
 			return
 		}
 
-		r.notify.ErrNotif(err)
-		return
-	}
+		results, err := checkResults(output)
+		if err != nil {
+			if _, ok := err.(ErrNoResult); ok {
+				continue
+			}
 
-	r.wg.Add(1)
-	go r.notify.NucleiResultsNotif(results)
+			r.notify.ErrNotif(err)
+			return
+		}
+
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			r.notify.NucleiResultsNotif(results)
+		}()
+	}
 	log.Println("[*] RunNewTemplates finished.")
 }
 
@@ -98,7 +110,7 @@ func (r *RunNewTemplates) runCommand(ctx context.Context, tmplPath string, hosts
 
 	results, err := execute(ctx, r.scriptPath, tmplPath, tempFile.Name())
 	if err != nil {
-		return "", fmt.Errorf("[!] Error while executing new tempaltes script: %w", err)
+		return "", fmt.Errorf("[!] Error while executing new tempaltes script: %w, %s", err, results)
 	}
 
 	return results, nil

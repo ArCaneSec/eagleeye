@@ -90,7 +90,7 @@ func (t *SubdomainEnumeration) runCommand(ctx context.Context, domain string) (s
 	op, err := execute(ctx, t.scriptPath, domain)
 
 	if err != nil {
-		return "", fmt.Errorf("[!] Error while enumerating subdomains: %s", err)
+		return "", fmt.Errorf("[!] Error while enumerating subdomains: %w, %s", err, op)
 	}
 
 	return op, err

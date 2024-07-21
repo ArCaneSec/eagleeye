@@ -128,9 +128,9 @@ type TestDiscord struct {
 }
 
 func (t *TestDiscord) Start(ctx context.Context, b bool) {
-	val := make([]string, 0, 100000)
+	val := make([]string, 0, 9000000)
 
-	for i := 0; i <= 100000; i++ {
+	for i := 0; i <= 9000000; i++ {
 		val = append(val, "i")
 	}
 

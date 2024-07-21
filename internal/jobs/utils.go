@@ -41,8 +41,8 @@ func tempFileNServicesMap(services []m.HttpService) (string, map[string]*m.HttpS
 	servicesMap := make(map[string]*m.HttpService, len(services))
 
 	for _, service := range services {
-		tempFile.WriteString(fmt.Sprintf("%s\n", service.Host))
-		servicesMap[service.Host] = &service
+		tempFile.WriteString(fmt.Sprintf("%s\n", service.HostWithPort()))
+		servicesMap[service.HostWithPort()] = &service
 	}
 
 	tempFile.Close()
@@ -69,9 +69,9 @@ func createEmptyHttps(httpSlice *[]interface{}, sub m.Subdomain) {
 }
 
 func extractHostNUrl(host string) (string, string) {
-	port := hasPort.FindString(host)
-	if port != "" {
-		return fmt.Sprintf("%s:%s", host, port), hostWithPort.FindString(host)
+	port := hasPort.FindStringSubmatch(host)
+	if port != nil {
+		return host, hostWithPort.FindStringSubmatch(host)[1]
 	}
 
 	var url string

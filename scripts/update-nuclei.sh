@@ -2,8 +2,11 @@
 
 nuclei -silent -duc -up &>/dev/null
 if [ $? -ne 0 ]; then
-    echo 'An error occured while updating nuclei.'
-    exit 1
+    go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest &>/dev/null
+    if [ $? -ne 0 ]; then
+        echo 'An error occured while updating nuclei.'
+        exit 1
+    fi
 fi
 
 CONFIG_FILE=$1 #"/home/arcane/tools/config.sh"

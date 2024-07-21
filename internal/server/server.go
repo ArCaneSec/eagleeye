@@ -15,7 +15,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -27,7 +26,6 @@ type Server struct {
 }
 
 func InitializeEagleEye() {
-	godotenv.Load("../../.env")
 	r := chi.NewRouter()
 
 	var wg sync.WaitGroup

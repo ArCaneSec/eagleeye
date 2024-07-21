@@ -61,7 +61,6 @@ func execute(ctx context.Context, command string, args ...string) (string, error
 	op, err := cmd.CombinedOutput()
 
 	if err != nil {
-		fmt.Println(err)
 		return string(op), err
 	}
 
@@ -137,10 +136,10 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 	}
 
 	jobs := []*job{
-		subdomainEnumerationJob(deps),
-		dnsResolveAllJob(deps),
-		httpDiscoveryAllJob(deps),
-		updateNucleiJob(deps),
+		// subdomainEnumerationJob(deps),
+		// dnsResolveAllJob(deps),
+		// httpDiscoveryAllJob(deps),
+		// updateNucleiJob(deps),
 		runNewTempaltesJob(deps),
 	}
 
@@ -157,7 +156,7 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 
 func dnsResolveAllJob(d *Dependencies) *job {
 	return &job{
-		duration: 1 * time.Hour,
+		duration: 48 * time.Hour,
 		task: &DnsResolveAll{
 			&DnsResolve{
 				Dependencies: d,
@@ -170,10 +169,10 @@ func dnsResolveAllJob(d *Dependencies) *job {
 
 func subdomainEnumerationJob(d *Dependencies) *job {
 	return &job{
-		duration: 1 * time.Hour,
+		duration: 48 * time.Hour,
 		task: &SubdomainEnumeration{
 			Dependencies: d,
-			scriptPath:   "/home/arcane/automation/enumeration.sh",
+			scriptPath:   "/home/arcane/tools/eagleeye/scripts/enumerate.sh",
 		},
 		cDuration: 2 * time.Hour,
 		subTasks: []Task{
@@ -191,7 +190,7 @@ func subdomainEnumerationJob(d *Dependencies) *job {
 
 func httpDiscoveryAllJob(d *Dependencies) *job {
 	return &job{
-		duration: 1 * time.Hour,
+		duration: 48 * time.Hour,
 		task: &HttpDiscoveryAll{
 			HttpDiscovery: &HttpDiscovery{
 				Dependencies: d,
@@ -204,21 +203,26 @@ func httpDiscoveryAllJob(d *Dependencies) *job {
 
 func updateNucleiJob(d *Dependencies) *job {
 	return &job{
-		duration: 1 * time.Hour,
+		duration: 24 * time.Hour,
 		task: &UpdateNuclei{
 			Dependencies: d,
-			scriptPath:   "/home/arcane/tools/EagleEye/scripts/update-nuclei.sh",
+			scriptPath:   "/home/arcane/tools/eagleeye/scripts/update-nuclei.sh",
 		},
 		cDuration: 2 * time.Hour,
+		subTasks: []Task{
+			&RunNewTemplates{
+				Dependencies: d,
+				scriptPath:   "/home/arcane/tools/eagleeye/scripts/nuclei.sh",
+			}},
 	}
 }
 
 func runNewTempaltesJob(d *Dependencies) *job {
 	return &job{
-		duration: 1 * time.Hour,
+		duration: 24 * time.Hour,
 		task: &RunNewTemplates{
 			Dependencies: d,
-			scriptPath:   "/home/arcane/tools/EagleEye/scripts/nuclei.sh",
+			scriptPath:   "/home/arcane/tools/eagleeye/scripts/nuclei.sh",
 		},
 		cDuration: 2 * time.Hour,
 	}

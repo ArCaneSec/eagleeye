@@ -1,6 +1,7 @@
 package models
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -65,4 +66,9 @@ type HttpService struct {
 
 func (h HttpService) String() string {
 	return h.Host
+}
+
+func (h HttpService) HostWithPort() string {
+	pattern := regexp.MustCompile(`(?:^https?:\/\/)?([\w\-\.]+:\d{1,5})$`)
+	return pattern.FindStringSubmatch(h.Host)[1]
 }

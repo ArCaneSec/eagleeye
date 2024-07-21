@@ -1,13 +1,14 @@
 package jobs
 
 import (
-	m "github.com/ArCaneSec/eagleeye/pkg/models"
 	"context"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
+
+	m "github.com/ArCaneSec/eagleeye/pkg/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -35,7 +36,8 @@ func (h *HttpDiscovery) fetchAssets(ctx context.Context) error {
 }
 
 func (t *HttpDiscoveryAll) fetchAssets(ctx context.Context) error {
-	cursor, _ := t.db.Collection("http-services").Find(ctx, bson.M{})
+	// cursor, _ := t.db.Collection("http-services").Find(ctx, bson.M{})
+	cursor, _ := t.db.Collection("http-services").Find(ctx, bson.M{"host": bson.M{"$regex": ".*buildla.lacity.org.*"}})
 	if err := cursor.All(ctx, &t.hosts); err != nil {
 		return fmt.Errorf("[!] Error while fetching http services: %w", err)
 	}
@@ -59,7 +61,7 @@ func (h *HttpDiscovery) runCommand(ctx context.Context) (string, error) {
 	)
 
 	if err != nil {
-		return "", fmt.Errorf("[!] Error service discovering subdomains: %w", op)
+		return "", fmt.Errorf("[!] Error service discovering subdomains: %w, %s", err, op)
 	}
 
 	return op, nil
@@ -84,16 +86,11 @@ func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
 		url             string
 		hostWithPort    string
 		httpObj         *m.HttpService
-		ok              bool
 	)
 
 	for _, host := range results {
 		url, hostWithPort = extractHostNUrl(host)
-		httpObj, ok = t.httpMap[url]
-
-		if !ok {
-			httpObj = t.httpMap[hostWithPort]
-		}
+		httpObj = t.httpMap[hostWithPort]
 
 		if httpObj.Created == nil {
 			updates = append(updates, mongo.NewUpdateOneModel().
@@ -109,16 +106,17 @@ func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
 			}
 			updates = append(updates, mongo.NewUpdateOneModel().
 				SetFilter(bson.M{"_id": httpObj.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"isActive": true, "updated": now}}))
+				SetUpdate(bson.M{"$set": bson.M{"host": url, "isActive": true, "updated": now}}))
 
-			delete(t.httpMap, url)
+			delete(t.httpMap, hostWithPort)
 		}
 	}
 
 	for _, notResolvedhost := range t.httpMap {
-			updates = append(updates, mongo.NewUpdateOneModel().
-				SetFilter(bson.M{"_id": notResolvedhost.ID}).
-				SetUpdate(bson.M{"$set": bson.M{"isActive": false, "updated": now}}))
+		updates = append(updates, mongo.NewUpdateOneModel().
+			SetFilter(bson.M{"_id": notResolvedhost.ID}).
+			SetUpdate(bson.M{"$set": bson.M{"isActive": false, "updated": now}}))
+			fmt.Println(notResolvedhost)
 	}
 
 	_, err := t.db.Collection("http-services").BulkWrite(ctx, updates)

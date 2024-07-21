@@ -86,7 +86,7 @@ func (d *Discord) SendMessage(title string, desc string, msgKey string, msgValue
 func (d *Discord) sendEmbedReq(writer *multipart.Writer, data *bytes.Buffer) {
 	resp, err := http.Post(d.webhook, writer.FormDataContentType(), data)
 	if err != nil {
-		fmt.Printf("[!] Error sending request: %v\n", err)
+		log.Printf("[!] Error sending discord request: %v\nurl: %s", err, d.webhook)
 		return
 	}
 	defer resp.Body.Close()

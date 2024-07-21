@@ -62,7 +62,7 @@ func (u *UpdateNuclei) runCommand(ctx context.Context) (string, error) {
 	results, err := execute(ctx, u.scriptPath, u.configFile)
 
 	if err != nil {
-		return "", fmt.Errorf("[!] Error while executing update nuclei command: %s", results)
+		return "", fmt.Errorf("[!] Error while executing update nuclei command: %w, %s", err, results)
 	}
 
 	return results, nil
