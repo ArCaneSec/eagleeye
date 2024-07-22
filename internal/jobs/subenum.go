@@ -1,13 +1,15 @@
 package jobs
 
 import (
-	m "github.com/ArCaneSec/eagleeye/pkg/models"
 	"context"
 	"fmt"
 	"log"
 	"reflect"
 	"strings"
+	"syscall"
 	"time"
+
+	m "github.com/ArCaneSec/eagleeye/pkg/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -87,12 +89,11 @@ func (t *SubdomainEnumeration) runCommand(ctx context.Context, domain string) (s
 
 	log.Printf("[~] Current domain: %s\n", domain)
 
-	op, err := execute(ctx, t.scriptPath, domain)
+	op, err := execute(ctx, &t.pgid, t.scriptPath, domain)
 
 	if err != nil {
 		return "", fmt.Errorf("[!] Error while enumerating subdomains: %w, %s", err, op)
 	}
-
 	return op, err
 }
 
@@ -141,4 +142,8 @@ func (t *SubdomainEnumeration) insertDB(ctx context.Context, subs []interface{},
 
 		t.notify.NewAssetNotif(target.Name, domain, allSubs)
 	}
+}
+
+func (s *SubdomainEnumeration) Kill() {
+	syscall.Kill(-s.pgid, syscall.SIGKILL)
 }

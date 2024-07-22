@@ -62,7 +62,8 @@ func InitializeEagleEye() {
 
 				}()
 			} else {
-				log.Fatal("[!] Received second signal, terminating immediately")
+				log.Println("[!] Received second signal, terminating immediately")
+				s.scheduler.KillAll()
 			}
 		}
 	}()

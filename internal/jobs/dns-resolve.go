@@ -1,13 +1,15 @@
 package jobs
 
 import (
-	m "github.com/ArCaneSec/eagleeye/pkg/models"
 	"context"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"syscall"
 	"time"
+
+	m "github.com/ArCaneSec/eagleeye/pkg/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -30,7 +32,7 @@ func (d *DnsResolve) fetchAssets(ctx context.Context) error {
 	if err := cursor.All(ctx, &d.subdomains); err != nil {
 		return fmt.Errorf("[!] Error while fetching new subs: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -54,7 +56,7 @@ func (d *DnsResolve) runCommand(ctx context.Context) (string, error) {
 
 	defer os.Remove(tempFile)
 
-	op, err := execute(ctx, d.scriptPath, tempFile)
+	op, err := execute(ctx, &d.pgid, d.scriptPath, tempFile)
 	if err != nil {
 		return "", fmt.Errorf("[!] Error while resolving all subdomains: %w, %s", err, op)
 	}
@@ -145,4 +147,8 @@ func (d *DnsResolve) insertDB(ctx context.Context, subs []string) error {
 
 func (d *DnsResolve) ErrNotif(err error) {
 	d.notify.ErrNotif(err)
+}
+
+func (d *DnsResolve) Kill() {
+	syscall.Kill(-d.pgid, syscall.SIGKILL)
 }

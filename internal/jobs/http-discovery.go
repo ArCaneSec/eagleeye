@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	m "github.com/ArCaneSec/eagleeye/pkg/models"
@@ -56,7 +57,8 @@ func (h *HttpDiscovery) runCommand(ctx context.Context) (string, error) {
 	defer os.Remove(tempFile)
 
 	op, err := execute(ctx,
-		"/home/arcane/automation/discovery.sh",
+		&h.pgid,
+		h.scriptPath,
 		tempFile,
 	)
 
@@ -116,7 +118,6 @@ func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
 		updates = append(updates, mongo.NewUpdateOneModel().
 			SetFilter(bson.M{"_id": notResolvedhost.ID}).
 			SetUpdate(bson.M{"$set": bson.M{"isActive": false, "updated": now}}))
-			fmt.Println(notResolvedhost)
 	}
 
 	_, err := t.db.Collection("http-services").BulkWrite(ctx, updates)
@@ -134,4 +135,8 @@ func (t *HttpDiscovery) insertDB(ctx context.Context, results []string) error {
 
 func (h *HttpDiscovery) ErrNotif(err error) {
 	h.notify.ErrNotif(err)
+}
+
+func (h *HttpDiscovery) Kill() {
+	syscall.Kill(-h.pgid, syscall.SIGKILL)
 }

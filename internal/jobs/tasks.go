@@ -21,6 +21,7 @@ func (err ErrNoResult) Error() string {
 
 type Task interface {
 	Start(context.Context, bool)
+	Kill()
 }
 
 type regularTask interface {
@@ -82,6 +83,7 @@ type Dependencies struct {
 	db     *mongo.Database
 	notify notifs.Notify
 	wg     *sync.WaitGroup
+	pgid   int
 }
 
 type SubdomainEnumeration struct {

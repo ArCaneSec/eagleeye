@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"syscall"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -108,10 +109,14 @@ func (r *RunNewTemplates) runCommand(ctx context.Context, tmplPath string, hosts
 		tempFile.WriteString(fmt.Sprintf("%s\n", host))
 	}
 
-	results, err := execute(ctx, r.scriptPath, tmplPath, tempFile.Name())
+	results, err := execute(ctx, &r.pgid, r.scriptPath, tempFile.Name(), tmplPath)
 	if err != nil {
-		return "", fmt.Errorf("[!] Error while executing new tempaltes script: %w, %s", err, results)
+		return "", fmt.Errorf("[!] Error while executing new templates script: %w, %s", err, results)
 	}
 
 	return results, nil
+}
+
+func (r *RunNewTemplates) Kill() {
+	syscall.Kill(-r.pgid, syscall.SIGKILL)
 }

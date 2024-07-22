@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"syscall"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -59,7 +60,7 @@ func (u *UpdateNuclei) fetchConfig(ctx context.Context) error {
 }
 
 func (u *UpdateNuclei) runCommand(ctx context.Context) (string, error) {
-	results, err := execute(ctx, u.scriptPath, u.configFile)
+	results, err := execute(ctx, &u.pgid, u.scriptPath, u.configFile)
 
 	if err != nil {
 		return "", fmt.Errorf("[!] Error while executing update nuclei command: %w, %s", err, results)
@@ -75,4 +76,8 @@ func (u *UpdateNuclei) checkResults(output string) (string, error) {
 	}
 
 	return tmplCounts, nil
+}
+
+func (u *UpdateNuclei) Kill() {
+	syscall.Kill(-u.pgid, syscall.SIGKILL)
 }

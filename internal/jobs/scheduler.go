@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -52,25 +53,48 @@ func (j *job) runTask() {
 	j.task.Start(ctx, false)
 }
 
-func execute(ctx context.Context, command string, args ...string) (string, error) {
+func execute(ctx context.Context, pgid *int, command string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	op, err := cmd.CombinedOutput()
-
-	if err != nil {
-		return string(op), err
+	if err := cmd.Start(); err != nil {
+		return stderr.String(), err
 	}
 
-	return string(op), nil
+	id, _ := syscall.Getpgid(cmd.Process.Pid)
+	*pgid = id
+
+	if err := cmd.Wait(); err != nil {
+		return stderr.String(), err
+	}
+
+	return stdout.String(), nil
 }
 
 type Scheduler struct {
 	core gocron.Scheduler
 	jobs []*job
 	wg   *sync.WaitGroup
+}
+
+func (s *Scheduler) KillJob(id int) error {
+	if id+1 > len(s.jobs) {
+		return fmt.Errorf("invalid id: %d", id)
+	}
+
+	job := s.jobs[id]
+
+	s.core.RemoveJob(job.cronJob.ID())
+	job.active = false
+	job.killer()
+	job.task.Kill()
+
+	return nil
 }
 
 func (s *Scheduler) DeactiveJob(id int) error {
@@ -121,9 +145,14 @@ func (s *Scheduler) Shutdown() error {
 		if err != nil {
 			return fmt.Errorf("error while shutting scheduler down: %w", err)
 		}
-		job.active = false
 	}
 	return nil
+}
+
+func (s *Scheduler) KillAll() {
+	for id := range s.jobs {
+		s.KillJob(id)
+	}
 }
 
 func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
@@ -136,11 +165,11 @@ func ScheduleJobs(db *mongo.Database, wg *sync.WaitGroup) *Scheduler {
 	}
 
 	jobs := []*job{
-		// subdomainEnumerationJob(deps),
+		subdomainEnumerationJob(deps),
 		// dnsResolveAllJob(deps),
 		// httpDiscoveryAllJob(deps),
 		// updateNucleiJob(deps),
-		runNewTempaltesJob(deps),
+		// runNewTemplatesJob(deps),
 	}
 
 	scheduler := &Scheduler{s, jobs, wg}
@@ -212,17 +241,17 @@ func updateNucleiJob(d *Dependencies) *job {
 		subTasks: []Task{
 			&RunNewTemplates{
 				Dependencies: d,
-				scriptPath:   "/home/arcane/tools/eagleeye/scripts/nuclei.sh",
+				scriptPath:   "/home/arcane/tools/eagleeye/scripts/nuclei-new-templates.sh",
 			}},
 	}
 }
 
-func runNewTempaltesJob(d *Dependencies) *job {
+func runNewTemplatesJob(d *Dependencies) *job {
 	return &job{
 		duration: 24 * time.Hour,
 		task: &RunNewTemplates{
 			Dependencies: d,
-			scriptPath:   "/home/arcane/tools/eagleeye/scripts/nuclei.sh",
+			scriptPath:   "/home/arcane/tools/eagleeye/scripts/nuclei-new-templates.sh",
 		},
 		cDuration: 2 * time.Hour,
 	}
